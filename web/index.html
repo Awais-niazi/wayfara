@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>FinnGuide — Your guide to studying in Finland</title>
+    <style>
+      :root { --primary: #002f6c; --accent: #0053a5; }
+      * { box-sizing: border-box; margin: 0; }
+      body {
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        color: #1a1a1a; background: #f7f9fc; line-height: 1.6;
+        min-height: 100vh; display: grid; place-items: center; padding: 24px;
+      }
+      main { max-width: 560px; text-align: center; }
+      .flag { font-size: 56px; }
+      h1 { font-size: 2.4rem; color: var(--primary); margin: 8px 0; }
+      .tag { font-size: 1.15rem; color: var(--accent); font-style: italic; margin-bottom: 24px; }
+      p { color: #444; }
+      .price { margin: 28px 0; font-size: 1.05rem; }
+      .price b { color: var(--primary); }
+      .cta {
+        display: inline-block; margin-top: 8px; padding: 14px 32px;
+        background: var(--primary); color: #fff; border-radius: 999px;
+        text-decoration: none; font-weight: 600;
+      }
+      .note { margin-top: 20px; font-size: 0.85rem; color: #888; }
+      footer { margin-top: 40px; font-size: 0.8rem; color: #aaa; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="flag">🇫🇮</div>
+      <h1>FinnGuide</h1>
+      <p class="tag">Why pay a consultant €1,500? Do it yourself for €25.</p>
+      <p>
+        The complete, step-by-step guide for Pakistani students moving to
+        Finland — from choosing a university to your first month settled in.
+      </p>
+      <div class="price">
+        Full Access <b>Rs 7,500</b> &nbsp;·&nbsp; Premium <b>Rs 12,500</b>
+      </div>
+      <a class="cta" href="#">Get Full Access</a>
+      <!-- Checkout wiring (Safepay / PayFast → Easypaisa, JazzCash, cards) lands in Week 9.
+           This is the purchase front door; the app unlocks via account entitlement after payment. -->
+      <p class="note">
+        Pay with Easypaisa, JazzCash, or your bank card. After payment, sign in
+        to the FinnGuide app to unlock every phase.
+      </p>
+      <footer>FinnGuide is a guidance tool, not a legal or immigration service. Migri decisions are always final.</footer>
+    </main>
+  </body>
+</html>

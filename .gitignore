@@ -1,0 +1,22 @@
+# Claude Code
+.claude/
+
+# Python / Django
+backend/.venv/
+__pycache__/
+*.py[cod]
+backend/.env
+db.sqlite3
+staticfiles/
+media/
+
+# Node / Expo
+node_modules/
+.expo/
+dist/
+*.tsbuildinfo
+.metro-health-check*
+
+# OS / editor
+.DS_Store
+*.log
