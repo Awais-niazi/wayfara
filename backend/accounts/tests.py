@@ -6,8 +6,8 @@ from rest_framework.test import APITestCase
 User = get_user_model()
 
 
-class AuthFlowTests(APITestCase):
-    def test_register_login_and_fetch_profile(self):
+class AuthTests(APITestCase):
+    def test_register_and_login(self):
         resp = self.client.post(
             reverse("register"),
             {"email": "student@example.com", "password": "SafePass!2026"},
@@ -19,14 +19,8 @@ class AuthFlowTests(APITestCase):
             {"email": "student@example.com", "password": "SafePass!2026"},
         )
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
-        access = resp.data["access"]
-
-        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {access}")
-        resp = self.client.get(reverse("profile"))
-        self.assertEqual(resp.status_code, status.HTTP_200_OK)
-        self.assertEqual(resp.data["email"], "student@example.com")
-        self.assertEqual(resp.data["tier"], "free")
-        self.assertFalse(resp.data["onboarding_completed"])
+        self.assertIn("access", resp.data)
+        self.assertIn("refresh", resp.data)
 
     def test_register_rejects_weak_password(self):
         resp = self.client.post(
@@ -35,33 +29,6 @@ class AuthFlowTests(APITestCase):
         )
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_profile_requires_auth(self):
-        resp = self.client.get(reverse("profile"))
-        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
-
-    def test_onboarding_profile_update(self):
+    def test_new_user_defaults_to_free_tier(self):
         user = User.objects.create_user(email="s@example.com", password="SafePass!2026")
-        self.client.force_authenticate(user)
-        resp = self.client.patch(
-            reverse("profile"),
-            {
-                "study_level": "masters",
-                "field_of_study": "Computer Science",
-                "intake": "september",
-                "intake_year": 2027,
-                "stage": "exploring",
-                "onboarding_completed": True,
-            },
-        )
-        self.assertEqual(resp.status_code, status.HTTP_200_OK)
-        user.refresh_from_db()
-        self.assertEqual(user.study_level, "masters")
-        self.assertTrue(user.onboarding_completed)
-
-    def test_tier_is_read_only_via_api(self):
-        user = User.objects.create_user(email="s2@example.com", password="SafePass!2026")
-        self.client.force_authenticate(user)
-        resp = self.client.patch(reverse("profile"), {"tier": "premium"})
-        self.assertEqual(resp.status_code, status.HTTP_200_OK)
-        user.refresh_from_db()
-        self.assertEqual(user.tier, "free")
+        self.assertEqual(user.tier, User.Tier.FREE)

@@ -14,27 +14,3 @@ class RegisterSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         return User.objects.create_user(**validated_data)
-
-
-class ProfileSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = User
-        fields = [
-            "id",
-            "email",
-            "first_name",
-            "last_name",
-            "study_level",
-            "field_of_study",
-            "grades",
-            "language_test_status",
-            "language_test_score",
-            "budget_eur_per_year",
-            "intake",
-            "intake_year",
-            "stage",
-            "current_phase",
-            "tier",
-            "onboarding_completed",
-        ]
-        read_only_fields = ["id", "email", "tier", "current_phase"]

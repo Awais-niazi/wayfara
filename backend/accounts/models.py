@@ -27,29 +27,11 @@ class UserManager(BaseUserManager):
 
 
 class User(AbstractUser):
-    """FinnGuide user: auth + onboarding profile + entitlement tier.
+    """Auth + entitlement only. Domain profile lives on students.Student.
 
-    Profile fields mirror the Phase 0 onboarding questions and stay blank
-    until onboarding completes.
+    `tier` sits here (not on Student) because it is account-level: the payment
+    webhook flips it, and it is never writable through the API.
     """
-
-    class StudyLevel(models.TextChoices):
-        UNDERGRADUATE = "undergraduate", "Undergraduate (FSc/A-Levels)"
-        MASTERS = "masters", "Masters (Bachelor's degree)"
-
-    class LanguageTestStatus(models.TextChoices):
-        NOT_TAKEN = "not_taken", "Not taken yet"
-        BOOKED = "booked", "Test booked"
-        TAKEN = "taken", "Score available"
-
-    class Intake(models.TextChoices):
-        SEPTEMBER = "september", "September"
-        JANUARY = "january", "January"
-
-    class Stage(models.TextChoices):
-        EXPLORING = "exploring", "Just exploring"
-        READY = "ready", "Ready to apply"
-        APPLIED = "applied", "Already applied"
 
     class Tier(models.TextChoices):
         FREE = "free", "Free"
@@ -58,28 +40,7 @@ class User(AbstractUser):
 
     username = None
     email = models.EmailField("email address", unique=True)
-
-    # Onboarding profile (Phase 0)
-    study_level = models.CharField(max_length=20, choices=StudyLevel.choices, blank=True)
-    field_of_study = models.CharField(max_length=100, blank=True)
-    grades = models.CharField(
-        max_length=100, blank=True, help_text="GPA, percentage, or A-Level grades as entered"
-    )
-    language_test_status = models.CharField(
-        max_length=20, choices=LanguageTestStatus.choices, blank=True
-    )
-    language_test_score = models.CharField(max_length=20, blank=True)
-    budget_eur_per_year = models.PositiveIntegerField(
-        null=True, blank=True, help_text="Annual tuition budget in EUR; null = tuition-free only"
-    )
-    intake = models.CharField(max_length=20, choices=Intake.choices, blank=True)
-    intake_year = models.PositiveSmallIntegerField(null=True, blank=True)
-    stage = models.CharField(max_length=20, choices=Stage.choices, blank=True)
-
-    # Journey + entitlement
-    current_phase = models.PositiveSmallIntegerField(default=0)
     tier = models.CharField(max_length=10, choices=Tier.choices, default=Tier.FREE)
-    onboarding_completed = models.BooleanField(default=False)
 
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = []
