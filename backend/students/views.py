@@ -1,13 +1,14 @@
 from django.db import transaction
 from django.utils import timezone
-from django_q.tasks import async_task
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.services import issue_and_send_otp
+from applications.tasks import match_programs_task
 
 from .models import Student, Task
+from .tasks import generate_timeline_task
 from .serializers import (
     OnboardingSerializer,
     ProfileSerializer,
@@ -31,14 +32,8 @@ class OnboardingView(APIView):
         serializer.is_valid(raise_exception=True)
         with transaction.atomic():
             student = serializer.save()
-            transaction.on_commit(
-                lambda: async_task(
-                    "applications.services.match_programs_for_student", student.pk
-                )
-            )
-            transaction.on_commit(
-                lambda: async_task("students.services.generate_timeline", student.pk)
-            )
+            transaction.on_commit(lambda: match_programs_task.delay(student.pk))
+            transaction.on_commit(lambda: generate_timeline_task.delay(student.pk))
         issue_and_send_otp(student.user)
         return Response(
             {

@@ -22,6 +22,11 @@ from choosing a university to their first month settled in. Replaces the
   Pakistan), then unlock the app by signing in — avoids Apple/Google's 15–30% cut.
 - **Tiers:** Free (Phases 0–1) · Full Access · Premium (adds AI document review).
   `User.tier` is read-only via the API; only the payment webhook changes it.
+- **Onboarding is form-first.** No register wall: the Get Started form creates a
+  passwordless account, university matching + timeline generation run in the
+  background, and a 6-digit OTP email verifies the user (OTP is also the login).
+- **Background tasks: Celery + Redis.** Tasks are thin invokers only — business
+  logic lives in service functions. Local Redis db index 5 (shared Redis server).
 
 ## Backend — local setup
 
@@ -33,18 +38,30 @@ cd backend
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 cp .env.example .env          # DATABASE_URL points at postgres on :5433
 .venv/bin/python manage.py migrate
+.venv/bin/python manage.py seed_task_templates
 .venv/bin/python manage.py test
 .venv/bin/python manage.py runserver
 ```
 
 Without a `DATABASE_URL`, the backend falls back to SQLite so a fresh clone runs
-with zero setup.
+with zero setup. Celery tasks run inline by default (`CELERY_TASK_ALWAYS_EAGER=true`);
+to exercise the real queue locally:
+
+```bash
+CELERY_TASK_ALWAYS_EAGER=false .venv/bin/celery -A wayfara worker --loglevel=info
+# and run the server with CELERY_TASK_ALWAYS_EAGER=false too
+```
 
 ### API endpoints
 
-- `POST /api/auth/register/` — create account (email + password)
-- `POST /api/auth/token/` + `/api/auth/token/refresh/` — JWT login
+- `POST /api/onboarding/` — the Get Started form (anonymous): profile + email →
+  account, background matching + timeline, OTP email
+- `POST /api/auth/otp/request/` / `POST /api/auth/otp/verify/` — passwordless
+  login; verify returns JWT tokens
+- `POST /api/auth/token/refresh/` — refresh the access token
 - `GET|PATCH /api/profile/` — read/update onboarding profile
+- `GET /api/matches/` — university recommendations, best fit first
+- `GET /api/tasks/` (`?phase=N`) + `POST /api/tasks/<id>/status/` — journey plan
 
 ## Mobile — local setup
 

@@ -33,7 +33,6 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "rest_framework",
     "corsheaders",
-    "django_q",
     "accounts",
     "students",
     "universities",
@@ -114,17 +113,19 @@ STATIC_URL = "static/"
 MEDIA_URL = "media/"
 MEDIA_ROOT = BASE_DIR / "media"  # local dev only; S3/R2 replaces this in production
 
-# Background tasks — django-q2 on the ORM broker (no Redis needed).
-# sync=true runs tasks inline (dev default, and what tests rely on);
-# production sets DJANGO_Q_SYNC=false and runs `manage.py qcluster`.
-Q_CLUSTER = {
-    "name": "wayfara",
-    "orm": "default",
-    "workers": 2,
-    "timeout": 60,
-    "retry": 120,
-    "sync": os.environ.get("DJANGO_Q_SYNC", "true").lower() == "true",
-}
+# Background tasks — Celery + Redis. Tasks are thin invokers; business logic
+# stays in service functions. Redis db index 5 keeps Wayfara out of any other
+# local Redis user's keyspace (Ash runs on this machine too).
+# CELERY_TASK_ALWAYS_EAGER=true (dev/test default) runs tasks inline with no
+# worker; production sets it to false and runs `celery -A wayfara worker`.
+CELERY_BROKER_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/5")
+CELERY_RESULT_BACKEND = os.environ.get("REDIS_URL", "redis://localhost:6379/5")
+CELERY_TASK_ALWAYS_EAGER = (
+    os.environ.get("CELERY_TASK_ALWAYS_EAGER", "true").lower() == "true"
+)
+CELERY_TASK_EAGER_PROPAGATES = True
+CELERY_TASK_TIME_LIMIT = 60
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 
 EMAIL_BACKEND = os.environ.get(
     "DJANGO_EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend"
