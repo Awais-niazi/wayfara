@@ -8,6 +8,7 @@ with zero setup.
 from datetime import timedelta
 from pathlib import Path
 import os
+import sys
 
 import dj_database_url
 from dotenv import load_dotenv
@@ -22,6 +23,8 @@ SECRET_KEY = os.environ.get(
 
 DEBUG = os.environ.get("DJANGO_DEBUG", "true").lower() == "true"
 
+TESTING = "test" in sys.argv
+
 ALLOWED_HOSTS = os.environ.get("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
 
 INSTALLED_APPS = [
@@ -32,6 +35,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "rest_framework",
+    "rest_framework_simplejwt.token_blacklist",
     "corsheaders",
     "django_celery_beat",
     "accounts",
@@ -81,6 +85,22 @@ DATABASES = {
 
 AUTH_USER_MODEL = "accounts.User"
 
+# Cache — backs DRF throttle counters, so it must be shared across workers in
+# production (Redis db 6; broker is db 5, Ash's keyspace untouched). Tests use
+# in-process memory: no Redis dependency, and no throttle state bleeding
+# between test runs.
+if TESTING:
+    CACHES = {
+        "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
+    }
+else:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": os.environ.get("CACHE_URL", "redis://localhost:6379/6"),
+        }
+    }
+
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
@@ -93,12 +113,38 @@ REST_FRAMEWORK = {
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ),
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
+    # Safety-net throttles on everything; the abuse-prone public endpoints
+    # (OTP, register, onboarding) carry much tighter scoped rates below.
+    "DEFAULT_THROTTLE_CLASSES": (
+        "rest_framework.throttling.AnonRateThrottle",
+        "rest_framework.throttling.UserRateThrottle",
+    ),
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": "100/hour",
+        "user": "1000/hour",
+        # Per-IP scoped rates
+        "register": "10/hour",
+        "onboarding": "10/hour",
+        "otp_request": "10/hour",
+        "otp_verify": "20/hour",  # model also caps 5 attempts per code
+        # Per-target-inbox rate: stops many-IP spamming of one mailbox
+        "otp_email": "5/hour",
+    },
 }
+
+if TESTING:
+    # Keep throttling exercised in dedicated tests (via override_settings)
+    # without tripping the rest of the suite, which shares one client IP.
+    REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"] = {
+        scope: "10000/min" for scope in REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"]
+    }
 
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=30),
     "ROTATE_REFRESH_TOKENS": True,
+    # Rotated-out refresh tokens are dead immediately; logout blacklists too.
+    "BLACKLIST_AFTER_ROTATION": True,
 }
 
 CORS_ALLOWED_ORIGINS = os.environ.get(
@@ -147,5 +193,42 @@ SCRAPER_ALERT_EMAIL = os.environ.get("SCRAPER_ALERT_EMAIL", DEFAULT_FROM_EMAIL)
 
 OTP_LIFETIME_MINUTES = 10
 OTP_MAX_ATTEMPTS = 5
+
+# Error tracking — activates only when SENTRY_DSN is set (production).
+# Django + Celery errors both report; PII stays out of events by default.
+SENTRY_DSN = os.environ.get("SENTRY_DSN", "")
+if SENTRY_DSN and not TESTING:
+    import sentry_sdk
+
+    sentry_sdk.init(
+        dsn=SENTRY_DSN,
+        environment=os.environ.get("SENTRY_ENVIRONMENT", "production"),
+        send_default_pii=False,  # student emails/documents never leave our infra
+        traces_sample_rate=float(os.environ.get("SENTRY_TRACES_SAMPLE_RATE", "0.1")),
+    )
+
+# Logging — structured console output (12-factor: the host captures stdout).
+# Request/security errors always surface; scraping gets its own channel since
+# it runs unattended at 2 AM.
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "console": {
+            "format": "{asctime} {levelname} {name} {message}",
+            "style": "{",
+        },
+    },
+    "handlers": {
+        "console": {"class": "logging.StreamHandler", "formatter": "console"},
+    },
+    "root": {"handlers": ["console"], "level": os.environ.get("LOG_LEVEL", "INFO")},
+    "loggers": {
+        "django.request": {"level": "WARNING"},
+        "django.security": {"level": "WARNING"},
+        "scraping": {"level": "INFO"},
+        "celery": {"level": "INFO"},
+    },
+}
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"

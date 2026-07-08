@@ -1,11 +1,14 @@
 from django.contrib.auth import get_user_model
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
+from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from .serializers import RegisterSerializer, RequestOTPSerializer, VerifyOTPSerializer
 from .services import issue_and_send_otp, verify_otp
+from .throttling import OTPEmailRateThrottle
 
 User = get_user_model()
 
@@ -13,12 +16,16 @@ User = get_user_model()
 class RegisterView(generics.CreateAPIView):
     serializer_class = RegisterSerializer
     permission_classes = [permissions.AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "register"
 
 
 class RequestOTPView(APIView):
     """Send a login/verification code. Always 200 — no account enumeration."""
 
     permission_classes = [permissions.AllowAny]
+    throttle_classes = [ScopedRateThrottle, OTPEmailRateThrottle]
+    throttle_scope = "otp_request"
 
     def post(self, request):
         serializer = RequestOTPSerializer(data=request.data)
@@ -33,6 +40,8 @@ class VerifyOTPView(APIView):
     """Exchange email + code for JWT tokens; marks the email verified."""
 
     permission_classes = [permissions.AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "otp_verify"
 
     def post(self, request):
         serializer = VerifyOTPSerializer(data=request.data)
@@ -47,3 +56,41 @@ class VerifyOTPView(APIView):
             user.save(update_fields=["email_verified"])
         refresh = RefreshToken.for_user(user)
         return Response({"access": str(refresh.access_token), "refresh": str(refresh)})
+
+
+class MeView(APIView):
+    """Session bootstrap: one call on app launch decides the route.
+
+    No JWT -> 401 -> Get Started. Otherwise the app routes on `role`
+    (student home vs advisor console) and `onboarding_complete`.
+    """
+
+    def get(self, request):
+        user = request.user
+        return Response(
+            {
+                "email": user.email,
+                "role": user.role,
+                "tier": user.tier,
+                "email_verified": user.email_verified,
+                # Student profile is created by onboarding, so its existence
+                # is the onboarded signal. Advisors have no Student profile.
+                "onboarding_complete": hasattr(user, "student"),
+            }
+        )
+
+
+class LogoutView(APIView):
+    """Blacklist the refresh token so logout actually revokes the session."""
+
+    def post(self, request):
+        token = request.data.get("refresh")
+        if not token:
+            return Response(
+                {"detail": "refresh token required."}, status=status.HTTP_400_BAD_REQUEST
+            )
+        try:
+            RefreshToken(token).blacklist()
+        except TokenError:
+            pass  # already expired/blacklisted — logout is idempotent
+        return Response(status=status.HTTP_205_RESET_CONTENT)

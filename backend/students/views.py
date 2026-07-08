@@ -2,6 +2,7 @@ from django.db import transaction
 from django.utils import timezone
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from accounts.services import issue_and_send_otp
@@ -26,6 +27,8 @@ class OnboardingView(APIView):
     """
 
     permission_classes = [permissions.AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "onboarding"
 
     def post(self, request):
         serializer = OnboardingSerializer(data=request.data)
@@ -59,7 +62,7 @@ class TaskListView(generics.ListAPIView):
     serializer_class = TaskSerializer
 
     def get_queryset(self):
-        qs = Task.objects.filter(student__user=self.request.user)
+        qs = Task.objects.owned_by(self.request.user)
         phase = self.request.query_params.get("phase")
         if phase is not None:
             qs = qs.filter(phase=phase)
@@ -70,7 +73,7 @@ class TaskStatusView(APIView):
     """Mark a task complete / skipped / back to pending."""
 
     def post(self, request, pk):
-        task = Task.objects.filter(student__user=request.user, pk=pk).first()
+        task = Task.objects.owned_by(request.user).filter(pk=pk).first()
         if task is None:
             return Response(status=status.HTTP_404_NOT_FOUND)
         serializer = TaskStatusSerializer(data=request.data)

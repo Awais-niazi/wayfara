@@ -11,7 +11,7 @@ class MatchListView(generics.ListAPIView):
 
     def get_queryset(self):
         return (
-            Match.objects.filter(student__user=self.request.user)
+            Match.objects.owned_by(self.request.user)
             .select_related("program__university__profile", "program__campus")
             .order_by("-score")
         )

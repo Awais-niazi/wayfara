@@ -7,14 +7,14 @@ from .models import User
 @admin.register(User)
 class WayfaraUserAdmin(UserAdmin):
     ordering = ["email"]
-    list_display = ["email", "tier", "is_active", "date_joined"]
-    list_filter = ["tier", "is_active"]
+    list_display = ["email", "role", "tier", "is_active", "date_joined"]
+    list_filter = ["role", "tier", "is_active"]
     search_fields = ["email", "first_name", "last_name"]
 
     fieldsets = (
         (None, {"fields": ("email", "password")}),
         ("Personal info", {"fields": ("first_name", "last_name")}),
-        ("Entitlement", {"fields": ("tier",)}),
+        ("Entitlement", {"fields": ("tier", "role")}),
         (
             "Permissions",
             {"fields": ("is_active", "is_staff", "is_superuser", "groups", "user_permissions")},

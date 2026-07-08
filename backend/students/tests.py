@@ -3,9 +3,61 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from .models import Student
+from .models import Student, Task
 
 User = get_user_model()
+
+
+class RowLevelScopingTests(APITestCase):
+    """One student must never see or touch another's rows.
+
+    Scoping is centralized in StudentOwnedQuerySet.owned_by(); these tests
+    prove the API surface honours it end to end.
+    """
+
+    def setUp(self):
+        self.alice = Student.objects.create(
+            user=User.objects.create_user(email="alice@example.com")
+        )
+        self.bob = Student.objects.create(
+            user=User.objects.create_user(email="bob@example.com")
+        )
+        self.alice_task = Task.objects.create(
+            student=self.alice, phase=1, title="Alice's secret task"
+        )
+
+    def test_owned_by_filters_at_the_queryset(self):
+        self.assertEqual(list(Task.objects.owned_by(self.alice.user)), [self.alice_task])
+        self.assertEqual(list(Task.objects.owned_by(self.bob.user)), [])
+
+    def test_task_list_never_leaks_across_students(self):
+        self.client.force_authenticate(self.bob.user)
+        resp = self.client.get(reverse("tasks"))
+        self.assertEqual(resp.data, [])
+
+    def test_cannot_flip_another_students_task(self):
+        self.client.force_authenticate(self.bob.user)
+        resp = self.client.post(
+            reverse("task_status", args=[self.alice_task.pk]), {"status": "completed"}
+        )
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+        self.alice_task.refresh_from_db()
+        self.assertEqual(self.alice_task.status, Task.Status.PENDING)
+
+    def test_match_list_never_leaks_across_students(self):
+        from applications.models import Match
+        from universities.models import Program, University
+
+        uni = University.objects.create(name="Aalto", institution_type="university", city="Espoo")
+        program = Program.objects.create(
+            university=uni, name="CS", degree_level="masters",
+            field_of_study="IT", intake="september",
+        )
+        Match.objects.create(student=self.alice, program=program, fit="good_fit", score=80)
+
+        self.client.force_authenticate(self.bob.user)
+        resp = self.client.get(reverse("matches"))
+        self.assertEqual(resp.data, [])
 
 
 class ProfileTests(APITestCase):

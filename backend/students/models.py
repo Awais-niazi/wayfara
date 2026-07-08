@@ -1,6 +1,8 @@
 from django.conf import settings
 from django.db import models
 
+from wayfara.db import StudentOwnedManager
+
 
 class Student(models.Model):
     """Domain profile for a user on the study-in-Finland journey.
@@ -108,6 +110,8 @@ class Document(models.Model):
 
     uploaded_at = models.DateTimeField(auto_now_add=True)
 
+    objects = StudentOwnedManager()
+
     class Meta:
         ordering = ["-uploaded_at"]
         indexes = [models.Index(fields=["student", "doc_type"])]
@@ -173,6 +177,8 @@ class Task(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    objects = StudentOwnedManager()
+
     class Meta:
         ordering = ["phase", "order", "due_date"]
         indexes = [
@@ -197,6 +203,8 @@ class Reminder(models.Model):
     remind_at = models.DateTimeField()
     sent = models.BooleanField(default=False)
     sent_at = models.DateTimeField(null=True, blank=True)
+
+    objects = StudentOwnedManager()
 
     class Meta:
         ordering = ["remind_at"]
@@ -235,6 +243,8 @@ class Accommodation(models.Model):
     notes = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
+    objects = StudentOwnedManager()
+
     class Meta:
         ordering = ["-created_at"]
 
@@ -252,6 +262,8 @@ class Flight(models.Model):
     depart_at = models.DateTimeField()
     arrive_at = models.DateTimeField()
     notes = models.TextField(blank=True)
+
+    objects = StudentOwnedManager()
 
     class Meta:
         ordering = ["depart_at"]

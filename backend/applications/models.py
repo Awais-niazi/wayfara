@@ -1,5 +1,7 @@
 from django.db import models
 
+from wayfara.db import StudentOwnedManager
+
 
 class PolicyFigure(models.Model):
     """Structured immigration-policy values (Migri financial requirement,
@@ -44,6 +46,8 @@ class Match(models.Model):
     fit = models.CharField(max_length=10, choices=Fit.choices)
     score = models.DecimalField(max_digits=5, decimal_places=2, help_text="0–100 composite fit score")
     created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = StudentOwnedManager()
 
     class Meta:
         verbose_name_plural = "matches"
@@ -110,6 +114,8 @@ class Application(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    objects = StudentOwnedManager()
+
     class Meta:
         ordering = ["priority", "-created_at"]
         constraints = [
@@ -163,6 +169,8 @@ class Visa(models.Model):
     notes = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    objects = StudentOwnedManager()
 
     class Meta:
         ordering = ["-created_at"]

@@ -42,9 +42,16 @@ class User(AbstractUser):
         FULL = "full", "Full Access"
         PREMIUM = "premium", "Premium"
 
+    class Role(models.TextChoices):
+        STUDENT = "student", "Student"
+        ADVISOR = "advisor", "Advisor"
+
     username = None
     email = models.EmailField("email address", unique=True)
     tier = models.CharField(max_length=10, choices=Tier.choices, default=Tier.FREE)
+    # Advisors are provisioned by a superuser in admin — there is no advisor
+    # signup. Staff/admin access stays on is_staff/is_superuser as usual.
+    role = models.CharField(max_length=10, choices=Role.choices, default=Role.STUDENT)
     email_verified = models.BooleanField(default=False)
 
     USERNAME_FIELD = "email"
