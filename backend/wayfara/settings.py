@@ -33,11 +33,13 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "rest_framework",
     "corsheaders",
+    "django_celery_beat",
     "accounts",
     "students",
     "universities",
     "applications",
     "chat",
+    "scraping",
 ]
 
 MIDDLEWARE = [
@@ -127,10 +129,21 @@ CELERY_TASK_EAGER_PROPAGATES = True
 CELERY_TASK_TIME_LIMIT = 60
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 
+# Scheduled tasks (Celery Beat). DB-backed schedule so it survives ephemeral
+# hosts and is editable in admin. Scraper timezone = Helsinki: it runs at 2 AM
+# local to the Finnish sites it scrapes (off-peak, polite). Production runs
+# `celery -A wayfara beat --scheduler django_celery_beat.schedulers:DatabaseScheduler`.
+CELERY_TIMEZONE = os.environ.get("CELERY_TIMEZONE", "Europe/Helsinki")
+CELERY_ENABLE_UTC = True
+CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
+
 EMAIL_BACKEND = os.environ.get(
     "DJANGO_EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend"
 )
 DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "Wayfara <hello@wayfara.app>")
+
+# Where critical-change review alerts are emailed.
+SCRAPER_ALERT_EMAIL = os.environ.get("SCRAPER_ALERT_EMAIL", DEFAULT_FROM_EMAIL)
 
 OTP_LIFETIME_MINUTES = 10
 OTP_MAX_ATTEMPTS = 5

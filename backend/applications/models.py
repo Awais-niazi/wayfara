@@ -1,6 +1,32 @@
 from django.db import models
 
 
+class PolicyFigure(models.Model):
+    """Structured immigration-policy values (Migri financial requirement,
+    student work-hour limit, etc.) that content and the scraper both reference.
+
+    Kept as a small key-value table so a figure changes in one place instead of
+    being buried in task-template prose. `value` is text to hold amounts, hours,
+    or ranges uniformly. All changes are critical — scraper stages them.
+    """
+
+    code = models.CharField(max_length=60, unique=True, help_text="e.g. migri_monthly_funds_eur")
+    label = models.CharField(max_length=200)
+    value = models.CharField(max_length=100)
+    unit = models.CharField(max_length=40, blank=True, help_text="e.g. EUR/month, hours/week")
+    source_url = models.URLField(blank=True)
+    needs_verification = models.BooleanField(
+        default=False, help_text="Flagged when the seeded value hasn't been confirmed against the source"
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["code"]
+
+    def __str__(self):
+        return f"{self.code} = {self.value} {self.unit}".strip()
+
+
 class Match(models.Model):
     """A program recommendation produced by the background matching task.
 

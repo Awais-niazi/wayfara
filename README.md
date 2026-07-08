@@ -63,6 +63,25 @@ CELERY_TASK_ALWAYS_EAGER=false .venv/bin/celery -A wayfara worker --loglevel=inf
 - `GET /api/matches/` — university recommendations, best fit first
 - `GET /api/tasks/` (`?phase=N`) + `POST /api/tasks/<id>/status/` — journey plan
 
+### Data freshness (nightly scraper)
+
+University/visa data is refreshed by a nightly scraper (2 AM Europe/Helsinki via
+Celery Beat). Detected changes follow a **tiered policy**: low-risk fields
+auto-apply; critical fields (deadlines, tuition, Migri figures) wait in a
+review queue in Django admin (Scraping › Data changes) with an email alert.
+
+```bash
+.venv/bin/python manage.py setup_scraper_schedule   # register the 2 AM job (once)
+# production also runs:
+CELERY_TASK_ALWAYS_EAGER=false celery -A wayfara beat \
+  --scheduler django_celery_beat.schedulers:DatabaseScheduler
+```
+
+Per-site scraper classes (`scraping/scrapers.py`) are stubs — real parsing
+selectors must be written and verified against the live sites before enabling a
+source. Add a source: create a `ScrapeSource` whose `scraper_key` matches a
+registered scraper.
+
 ## Mobile — local setup
 
 ```bash

@@ -1,6 +1,13 @@
 from django.contrib import admin
 
-from .models import Application, Match, Visa
+from .models import Application, Match, PolicyFigure, Visa
+
+
+@admin.register(PolicyFigure)
+class PolicyFigureAdmin(admin.ModelAdmin):
+    list_display = ["code", "label", "value", "unit", "needs_verification", "updated_at"]
+    list_filter = ["needs_verification"]
+    search_fields = ["code", "label"]
 
 
 @admin.register(Match)
