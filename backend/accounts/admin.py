@@ -5,7 +5,7 @@ from .models import User
 
 
 @admin.register(User)
-class FinnGuideUserAdmin(UserAdmin):
+class WayfaraUserAdmin(UserAdmin):
     ordering = ["email"]
     list_display = ["email", "tier", "is_active", "date_joined"]
     list_filter = ["tier", "is_active"]

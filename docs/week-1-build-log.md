@@ -1,8 +1,14 @@
-# FinnGuide — Week 1 Build Log
+# Wayfara — Week 1 Build Log
 
 A detailed record of everything built in the Week 1 foundation phase: what was
 done, how, why, and the problems hit along the way. This is the developer
-narrative behind commit `4d7a2dc`.
+narrative behind the "Week 1 scaffold" commit (`f523b39`).
+
+> **Naming note:** the PRD v1.0 called this product *FinnGuide*; it was renamed
+> to **Wayfara** in July 2026. This log uses the current name throughout, except
+> in historical commands where the old name was actually typed (e.g. the
+> Postgres cluster is still named `16/finnguide`; the database inside it has
+> been renamed to `wayfara`).
 
 - **Date:** July 2026
 - **Milestone:** Week 1 — Foundation (per PRD §9)
@@ -32,7 +38,7 @@ next).
 Two sub-decisions:
 
 - **Not in-app purchase.** Apple/Google take 15–30% on digital unlocks bought
-  inside a native app. Instead, users buy on the **FinnGuide website** and the
+  inside a native app. Instead, users buy on the **Wayfara website** and the
   app unlocks by signing in to an account that owns the entitlement
   (the Netflix/Spotify model). To satisfy Apple/Google anti-steering rules, the
   in-app UI stays neutral — locked content says "sign in with a Full Access
@@ -57,7 +63,7 @@ primary database lives on a server in Helsinki. It shows
 `pg_is_in_recovery() = t` by design.
 
 **That cluster must never be modified or promoted** (promoting would detach the
-replica from Helsinki and break the backup). FinnGuide therefore got its own
+replica from Helsinki and break the backup). Wayfara therefore got its own
 isolated cluster, `16/finnguide`, on **port 5433**.
 
 ---
@@ -83,7 +89,7 @@ Project = `finnguide`, first app = `accounts`.
 
 ### 2.2 Settings — environment-driven
 
-[`finnguide/settings.py`](../backend/finnguide/settings.py) was rewritten so
+[`wayfara/settings.py`](../backend/wayfara/settings.py) was rewritten so
 nothing environment-specific is hardcoded:
 
 - `python-dotenv` loads `backend/.env` if present.
@@ -249,7 +255,7 @@ npm install --save-dev tailwindcss @tailwindcss/postcss postcss
 - [`metro.config.js`](../mobile/metro.config.js) — wraps Expo's config with
   `withNativewind`.
 - [`global.css`](../mobile/global.css) — Tailwind v4 `@import`s plus a `@theme`
-  block defining the FinnGuide brand colors (`--color-primary: #002f6c`,
+  block defining the Wayfara brand colors (`--color-primary: #002f6c`,
   `--color-accent: #0053a5`).
 - `postcss.config.mjs` — `@tailwindcss/postcss` plugin.
 - `nativewind-env.d.ts` / `declarations.d.ts` — TypeScript types for className
@@ -302,7 +308,7 @@ Actual checkout wiring is scheduled for Week 9.
   deploy) builds an identical schema.
 - [`README.md`](../README.md) documents the monorepo layout, key decisions, and
   local setup for both backend and mobile.
-- First commit **`4d7a2dc`** — 43 files, verified to contain no build
+- First commit **`f523b39`** — 43 files, verified to contain no build
   artifacts or secrets.
 - Remote `origin` → `https://github.com/Awais-niazi/wayfara.git`, pushed to
   `main` (SSH key added to GitHub by Awais).

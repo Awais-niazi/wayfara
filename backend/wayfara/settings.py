@@ -1,4 +1,4 @@
-"""Django settings for FinnGuide.
+"""Django settings for Wayfara.
 
 Environment-driven configuration. Set DATABASE_URL to use PostgreSQL
 (production and normal dev); falls back to SQLite so a fresh clone runs
@@ -51,7 +51,7 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
-ROOT_URLCONF = "finnguide.urls"
+ROOT_URLCONF = "wayfara.urls"
 
 TEMPLATES = [
     {
@@ -68,7 +68,7 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = "finnguide.wsgi.application"
+WSGI_APPLICATION = "wayfara.wsgi.application"
 
 DATABASES = {
     "default": dj_database_url.config(

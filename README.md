@@ -1,4 +1,4 @@
-# FinnGuide
+# Wayfara
 
 The complete, step-by-step guide for Pakistani students moving to Finland —
 from choosing a university to their first month settled in. Replaces the
@@ -25,8 +25,8 @@ from choosing a university to their first month settled in. Replaces the
 
 ## Backend — local setup
 
-FinnGuide uses its **own PostgreSQL cluster on port 5433** (`16/finnguide`),
-kept separate from anything else on the machine.
+Wayfara uses its **own PostgreSQL cluster on port 5433** (cluster `16/finnguide`,
+database `wayfara`), kept separate from anything else on the machine.
 
 ```bash
 cd backend

@@ -1,5 +1,5 @@
 /**
- * Minimal API client for the FinnGuide Django backend.
+ * Minimal API client for the Wayfara Django backend.
  * Base URL comes from app config (extra.apiUrl) so dev/prod can differ.
  */
 import Constants from "expo-constants";

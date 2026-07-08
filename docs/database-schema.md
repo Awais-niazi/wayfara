@@ -1,4 +1,4 @@
-# FinnGuide — Database Schema
+# Wayfara — Database Schema
 
 The full domain schema, live in PostgreSQL (cluster `16/finnguide`, port 5433)
 as of this document. Models are grouped into five Django apps by domain.
@@ -191,7 +191,7 @@ Unique: `(student, program)` — can't apply twice to the same program.
 
 ### Conversation
 FK → Student (CASCADE); `title`, `phase_context` (0–6, nullable) so "Ask
-FinnGuide" answers are phase-aware per PRD §6.1.
+Wayfara" answers are phase-aware per PRD §6.1.
 
 ### Message
 FK → Conversation (CASCADE); `role` (`user` / `assistant`), `content`,

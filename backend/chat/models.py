@@ -2,7 +2,7 @@ from django.db import models
 
 
 class Conversation(models.Model):
-    """An 'Ask FinnGuide' AI chat session, phase-aware per the PRD."""
+    """An 'Ask Wayfara' AI chat session, phase-aware per the PRD."""
 
     student = models.ForeignKey(
         "students.Student", on_delete=models.CASCADE, related_name="conversations"
