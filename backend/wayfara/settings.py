@@ -205,6 +205,9 @@ if SENTRY_DSN and not TESTING:
         environment=os.environ.get("SENTRY_ENVIRONMENT", "production"),
         send_default_pii=False,  # student emails/documents never leave our infra
         traces_sample_rate=float(os.environ.get("SENTRY_TRACES_SAMPLE_RATE", "0.1")),
+        # Sentry Logs: WARNING+ records from Python logging ship as searchable
+        # logs alongside the error events they contextualize.
+        enable_logs=True,
     )
 
 # Logging — structured console output (12-factor: the host captures stdout).
