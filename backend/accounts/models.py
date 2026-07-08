@@ -1,5 +1,9 @@
+import secrets
+
+from django.conf import settings
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models
+from django.utils import timezone
 
 
 class UserManager(BaseUserManager):
@@ -41,6 +45,7 @@ class User(AbstractUser):
     username = None
     email = models.EmailField("email address", unique=True)
     tier = models.CharField(max_length=10, choices=Tier.choices, default=Tier.FREE)
+    email_verified = models.BooleanField(default=False)
 
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = []
@@ -49,3 +54,36 @@ class User(AbstractUser):
 
     def __str__(self):
         return self.email
+
+
+class EmailOTP(models.Model):
+    """One-time 6-digit code for passwordless onboarding/login.
+
+    Issuing a new code invalidates all previous unused codes for the user.
+    """
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="otps")
+    code = models.CharField(max_length=6)
+    expires_at = models.DateTimeField()
+    attempts = models.PositiveSmallIntegerField(default=0)
+    used = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["user", "used", "expires_at"])]
+
+    @classmethod
+    def issue(cls, user):
+        cls.objects.filter(user=user, used=False).update(used=True)
+        return cls.objects.create(
+            user=user,
+            code=f"{secrets.randbelow(1_000_000):06d}",
+            expires_at=timezone.now() + timezone.timedelta(minutes=settings.OTP_LIFETIME_MINUTES),
+        )
+
+    def is_valid_now(self):
+        return (
+            not self.used
+            and self.attempts < settings.OTP_MAX_ATTEMPTS
+            and self.expires_at > timezone.now()
+        )

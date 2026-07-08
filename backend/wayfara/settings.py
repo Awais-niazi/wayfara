@@ -33,6 +33,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "rest_framework",
     "corsheaders",
+    "django_q",
     "accounts",
     "students",
     "universities",
@@ -112,5 +113,25 @@ STATIC_URL = "static/"
 
 MEDIA_URL = "media/"
 MEDIA_ROOT = BASE_DIR / "media"  # local dev only; S3/R2 replaces this in production
+
+# Background tasks — django-q2 on the ORM broker (no Redis needed).
+# sync=true runs tasks inline (dev default, and what tests rely on);
+# production sets DJANGO_Q_SYNC=false and runs `manage.py qcluster`.
+Q_CLUSTER = {
+    "name": "wayfara",
+    "orm": "default",
+    "workers": 2,
+    "timeout": 60,
+    "retry": 120,
+    "sync": os.environ.get("DJANGO_Q_SYNC", "true").lower() == "true",
+}
+
+EMAIL_BACKEND = os.environ.get(
+    "DJANGO_EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend"
+)
+DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "Wayfara <hello@wayfara.app>")
+
+OTP_LIFETIME_MINUTES = 10
+OTP_MAX_ATTEMPTS = 5
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"

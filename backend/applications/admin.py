@@ -1,6 +1,13 @@
 from django.contrib import admin
 
-from .models import Application, Visa
+from .models import Application, Match, Visa
+
+
+@admin.register(Match)
+class MatchAdmin(admin.ModelAdmin):
+    list_display = ["student", "program", "fit", "score", "created_at"]
+    list_filter = ["fit"]
+    search_fields = ["student__user__email", "program__name"]
 
 
 @admin.register(Application)

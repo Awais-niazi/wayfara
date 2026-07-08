@@ -1,6 +1,44 @@
+from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
 from .models import Student
+
+User = get_user_model()
+
+
+class OnboardingSerializer(serializers.ModelSerializer):
+    """The Get Started form: email + profile in one anonymous submission."""
+
+    email = serializers.EmailField()
+
+    class Meta:
+        model = Student
+        fields = [
+            "email",
+            "study_level",
+            "field_of_study",
+            "grades",
+            "language_test_status",
+            "language_test_score",
+            "budget_eur_per_year",
+            "intake",
+            "intake_year",
+            "stage",
+        ]
+        extra_kwargs = {
+            "study_level": {"required": True},
+            "field_of_study": {"required": True},
+        }
+
+    def create(self, validated_data):
+        email = validated_data.pop("email")
+        user = User.objects.filter(email__iexact=email).first()
+        if user is None:
+            user = User.objects.create_user(email=email)  # password=None -> unusable; OTP is the login
+        student, _ = Student.objects.update_or_create(
+            user=user, defaults={**validated_data, "onboarding_completed": True}
+        )
+        return student
 
 
 class ProfileSerializer(serializers.ModelSerializer):

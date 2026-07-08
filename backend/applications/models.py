@@ -1,6 +1,35 @@
 from django.db import models
 
 
+class Match(models.Model):
+    """A program recommendation produced by the background matching task.
+
+    Distinct from Application: a Match is what Wayfara suggests; an
+    Application is what the student decides to pursue.
+    """
+
+    class Fit(models.TextChoices):
+        SAFETY = "safety", "Safety"
+        GOOD_FIT = "good_fit", "Good fit"
+        REACH = "reach", "Reach"
+
+    student = models.ForeignKey("students.Student", on_delete=models.CASCADE, related_name="matches")
+    program = models.ForeignKey("universities.Program", on_delete=models.CASCADE, related_name="matches")
+    fit = models.CharField(max_length=10, choices=Fit.choices)
+    score = models.DecimalField(max_digits=5, decimal_places=2, help_text="0–100 composite fit score")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name_plural = "matches"
+        ordering = ["-score"]
+        constraints = [
+            models.UniqueConstraint(fields=["student", "program"], name="unique_match_per_program"),
+        ]
+
+    def __str__(self):
+        return f"{self.student} ~ {self.program} [{self.fit} {self.score}]"
+
+
 class Application(models.Model):
     """A student's application to one specific program."""
 
