@@ -1,9 +1,24 @@
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
-from .models import Student
+from .models import Student, Task
 
 User = get_user_model()
+
+
+class TaskSerializer(serializers.ModelSerializer):
+    is_critical = serializers.BooleanField(source="template.is_critical", default=False, read_only=True)
+
+    class Meta:
+        model = Task
+        fields = [
+            "id", "phase", "title", "description", "due_date",
+            "order", "status", "is_critical", "completed_at",
+        ]
+
+
+class TaskStatusSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(choices=Task.Status.choices)
 
 
 class OnboardingSerializer(serializers.ModelSerializer):
