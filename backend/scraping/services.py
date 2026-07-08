@@ -60,6 +60,17 @@ def _process_record(run, record):
         Model.objects.create(**create_kwargs)
         return "created", 0
 
+    # Reconcile related FKs (campus, university) directly — these are
+    # descriptive links, not gated scalar values.
+    fk_updates = [
+        name for name, rel in record.related.items()
+        if getattr(obj, f"{name}_id") != rel.pk
+    ]
+    if fk_updates:
+        for name in fk_updates:
+            setattr(obj, name, record.related[name])
+        obj.save(update_fields=fk_updates)
+
     ct = ContentType.objects.get_for_model(Model)
     changes = 0
     for field_name, new_value in record.fields.items():
@@ -77,8 +88,12 @@ def _process_record(run, record):
             new_value=new_value,
             risk=risk,
         )
-        if risk == DataChange.Risk.LOW:
-            change.apply(automatic=True)  # tiered policy: low-risk auto-applies
+        # Tiered policy: low-risk auto-applies. First-time population of a
+        # previously-empty field is not a risky change either — we only gate
+        # CHANGING a value a student may already be relying on.
+        is_population = old_value in (None, "")
+        if risk == DataChange.Risk.LOW or is_population:
+            change.apply(automatic=True)
         changes += 1
     return ("updated" if changes else "unchanged"), changes
 
@@ -94,14 +109,17 @@ def run_source(source_id):
         if scraper_cls is None:
             raise KeyError(f"No scraper registered for key '{source.scraper_key}'")
 
-        records = scraper_cls(source).scrape()
-        total_changes = created = 0
-        with transaction.atomic():
-            for record in records:
+        # Process incrementally: each record commits in its own short
+        # transaction so a long ingest keeps its progress even if a later
+        # fetch fails, and DB locks stay brief.
+        scraped = total_changes = created = 0
+        for record in scraper_cls(source).scrape():
+            with transaction.atomic():
                 outcome, n = _process_record(run, record)
-                total_changes += n
-                created += outcome == "created"
-        run.records_scraped = len(records)
+            scraped += 1
+            total_changes += n
+            created += outcome == "created"
+        run.records_scraped = scraped
         run.records_created = created
         run.changes_detected = total_changes
         run.finish(ScrapeRun.Status.SUCCESS)

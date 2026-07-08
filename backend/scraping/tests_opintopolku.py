@@ -42,6 +42,10 @@ class OpintopolkuIngestTests(TestCase):
         self.src = ScrapeSource.objects.create(
             name="Opintopolku", scraper_key="opintopolku_programs"
         )
+        # Disable detail enrichment for the catalogue-level tests (no toteutukset).
+        p = patch.object(OpintopolkuScraper, "fetch_koulutus", lambda self, oid: {"toteutukset": []})
+        p.start()
+        self.addCleanup(p.stop)
 
     @patch.object(OpintopolkuScraper, "fetch_search", fake_fetch)
     def test_ingest_creates_clean_programmes(self):
@@ -110,3 +114,65 @@ class OpintopolkuIngestTests(TestCase):
         self.assertEqual(ds.name, "Data Science, Master's Programme (2 yrs)")  # name unchanged (staged)
         staged = DataChange.objects.get(field_name="name", status="pending_review")
         self.assertEqual(staged.risk, "critical")
+
+
+KOULUTUS_DETAIL = {"toteutukset": [{"oid": "tot-1"}]}
+TOTEUTUS_DETAIL = {
+    "metadata": {"opetus": {"maksut": [
+        {"maksullisuustyyppi": "lukuvuosimaksu", "maksunMaara": 15000.0}
+    ]}},
+    "hakutiedot": [{
+        "koulutuksenAlkamiskausi": {
+            "koulutuksenAlkamiskausi": {"koodiUri": "kausi_s#1"},
+            "koulutuksenAlkamisvuosi": "2027",
+        },
+        "hakukohteet": [{
+            "jarjestyspaikka": {"nimi": {"en": "Otaniemi campus, Espoo"}},
+            "hakuajat": [{"alkaa": "2027-01-07T08:00", "paattyy": "2027-01-21T15:00"}],
+        }],
+    }],
+}
+
+
+class OpintopolkuEnrichmentTests(TestCase):
+    """The toteutus-detail fetch that fills tuition / deadline / start / campus."""
+
+    def setUp(self):
+        self.src = ScrapeSource.objects.create(
+            name="Opintopolku", scraper_key="opintopolku_programs"
+        )
+
+    def test_enrichment_fills_tuition_deadline_start_campus(self):
+        from datetime import date
+
+        one_hit = {"cs": {"hits": [hit("oid-cs", "Data Science, Master's", "Aalto University")]}}
+        with patch("scraping.scrapers.KONFO_SEARCHES", [("cs", "IT")]), \
+             patch.object(OpintopolkuScraper, "fetch_search", lambda self, kw: one_hit.get(kw, {"hits": []})), \
+             patch.object(OpintopolkuScraper, "fetch_koulutus", lambda self, oid: KOULUTUS_DETAIL), \
+             patch.object(OpintopolkuScraper, "fetch_toteutus", lambda self, oid: TOTEUTUS_DETAIL):
+            run_source(self.src.pk)
+
+        p = Program.objects.get(external_id="oid-cs")
+        self.assertEqual(int(p.tuition_fee_eur), 15000)
+        self.assertEqual(p.application_deadline, date(2027, 1, 21))
+        self.assertEqual(p.application_opens, date(2027, 1, 7))
+        self.assertEqual(p.start_date, date(2027, 9, 1))
+        self.assertEqual(p.intake, "september")
+        self.assertIsNotNone(p.campus)
+        self.assertEqual(p.campus.name, "Otaniemi campus, Espoo")
+
+    def test_enrichment_failure_keeps_catalogue_row(self):
+        """A broken detail fetch must not lose the programme."""
+        one_hit = {"cs": {"hits": [hit("oid-cs", "Data Science, Master's", "Aalto University")]}}
+
+        def boom(self, oid):
+            raise RuntimeError("konfo 500")
+
+        with patch("scraping.scrapers.KONFO_SEARCHES", [("cs", "IT")]), \
+             patch.object(OpintopolkuScraper, "fetch_search", lambda self, kw: one_hit.get(kw, {"hits": []})), \
+             patch.object(OpintopolkuScraper, "fetch_koulutus", boom):
+            run_source(self.src.pk)
+
+        p = Program.objects.get(external_id="oid-cs")   # created despite enrichment failure
+        self.assertIsNone(p.tuition_fee_eur)             # just no enriched fields
+        self.assertEqual(p.field_of_study, "IT")
