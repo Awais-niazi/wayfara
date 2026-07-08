@@ -32,15 +32,33 @@ def _is_same(field, old_value, new_value):
     return old_value == coerced or str(old_value).strip() == str(coerced).strip()
 
 
-def _diff_record(run, record):
-    """Compare one ScrapedRecord to its DB row; create DataChanges. Returns count."""
+def _coerce(Model, field_name, value):
+    try:
+        return Model._meta.get_field(field_name).to_python(value)
+    except Exception:
+        return value
+
+
+def _process_record(run, record):
+    """Reconcile one ScrapedRecord. Returns ('created'|'updated'|'unchanged', n_changes).
+
+    - No existing row + allow_create -> create it (additive; a new programme
+      appearing is not a risk to a student's existing decisions).
+    - Existing row -> diff each field under the tiered policy: low-risk
+      auto-applies, critical is staged for review.
+    """
     Model = apps.get_model(record.model)
     obj = Model.objects.filter(**record.natural_key).first()
+
     if obj is None:
-        # New rows are out of scope for auto-handling: a brand-new program's
-        # critical fields shouldn't be invented unattended. Log for a human.
-        logger.info("Scrape: unmatched %s %s (new record, skipped)", record.model, record.natural_key)
-        return 0
+        if not record.allow_create:
+            logger.info("Scrape: unmatched %s %s (skipped)", record.model, record.natural_key)
+            return "unchanged", 0
+        create_kwargs = dict(record.natural_key)
+        create_kwargs.update(record.related)
+        create_kwargs.update({f: _coerce(Model, f, v) for f, v in record.fields.items()})
+        Model.objects.create(**create_kwargs)
+        return "created", 0
 
     ct = ContentType.objects.get_for_model(Model)
     changes = 0
@@ -62,7 +80,7 @@ def _diff_record(run, record):
         if risk == DataChange.Risk.LOW:
             change.apply(automatic=True)  # tiered policy: low-risk auto-applies
         changes += 1
-    return changes
+    return ("updated" if changes else "unchanged"), changes
 
 
 def run_source(source_id):
@@ -77,11 +95,14 @@ def run_source(source_id):
             raise KeyError(f"No scraper registered for key '{source.scraper_key}'")
 
         records = scraper_cls(source).scrape()
-        total_changes = 0
+        total_changes = created = 0
         with transaction.atomic():
             for record in records:
-                total_changes += _diff_record(run, record)
+                outcome, n = _process_record(run, record)
+                total_changes += n
+                created += outcome == "created"
         run.records_scraped = len(records)
+        run.records_created = created
         run.changes_detected = total_changes
         run.finish(ScrapeRun.Status.SUCCESS)
     except Exception as exc:  # noqa: BLE001 — isolate per-source failure

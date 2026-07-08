@@ -77,10 +77,20 @@ CELERY_TASK_ALWAYS_EAGER=false celery -A wayfara beat \
   --scheduler django_celery_beat.schedulers:DatabaseScheduler
 ```
 
-Per-site scraper classes (`scraping/scrapers.py`) are stubs — real parsing
-selectors must be written and verified against the live sites before enabling a
-source. Add a source: create a `ScrapeSource` whose `scraper_key` matches a
-registered scraper.
+The live **Opintopolku ingester** (`opintopolku_programs`) pulls the real
+English-taught programme catalogue from Finland's national portal
+(konfo-backend JSON API): programme name, English description, provider
+university, ECTS, degree level, and a stable `oid` used as `Program.external_id`
+for idempotent upserts. New programmes are created; changes to existing ones
+follow the tiered policy. Tuition and deadlines are NOT sourced here (they sit
+several inconsistent levels deeper) — they stay admin-managed baselines.
+
+```bash
+.venv/bin/python manage.py seed_universities        # baseline of 22 institutions
+.venv/bin/python manage.py setup_scraper_schedule   # registers the source + 2 AM job
+```
+
+The Migri figures scraper remains a stub pending real selectors.
 
 ## Mobile — local setup
 

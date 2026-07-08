@@ -80,6 +80,12 @@ class Program(models.Model):
     )
 
     is_active = models.BooleanField(default=True)
+
+    # Provenance for live-ingested rows (e.g. Opintopolku koulutus oid). Lets
+    # the scraper upsert deterministically instead of guessing by name.
+    external_source = models.CharField(max_length=40, blank=True)
+    external_id = models.CharField(max_length=100, blank=True, null=True, unique=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

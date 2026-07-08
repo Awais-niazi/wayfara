@@ -32,6 +32,7 @@ class ScrapeRun(models.Model):
     started_at = models.DateTimeField(auto_now_add=True)
     finished_at = models.DateTimeField(null=True, blank=True)
     records_scraped = models.PositiveIntegerField(default=0)
+    records_created = models.PositiveIntegerField(default=0)
     changes_detected = models.PositiveIntegerField(default=0)
     error = models.TextField(blank=True)
 
@@ -47,7 +48,8 @@ class ScrapeRun(models.Model):
         self.finished_at = timezone.now()
         self.save(
             update_fields=[
-                "status", "error", "finished_at", "records_scraped", "changes_detected"
+                "status", "error", "finished_at", "records_scraped",
+                "records_created", "changes_detected",
             ]
         )
 
