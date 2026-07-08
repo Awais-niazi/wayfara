@@ -2,6 +2,24 @@ from rest_framework import serializers
 
 from students.models import Document, Student
 
+from .models import AdvisorMessage
+
+
+class AdvisorMessageSerializer(serializers.ModelSerializer):
+    mine = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AdvisorMessage
+        fields = ["id", "body", "created_at", "read_at", "mine"]
+
+    def get_mine(self, obj):
+        request = self.context.get("request")
+        return bool(request and obj.sender_id == request.user.id)
+
+
+class SendMessageSerializer(serializers.Serializer):
+    body = serializers.CharField(max_length=5000, trim_whitespace=True)
+
 
 class ActivateSerializer(serializers.Serializer):
     uid = serializers.CharField()

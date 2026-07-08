@@ -5,6 +5,8 @@ from .views import (
     AssignedStudentDetailView,
     AssignedStudentsView,
     DocumentDownloadView,
+    MyAdvisorMessagesView,
+    StudentMessagesView,
 )
 
 urlpatterns = [
@@ -16,8 +18,15 @@ urlpatterns = [
         name="advisor_student_detail",
     ),
     path(
+        "advisor/students/<int:pk>/messages/",
+        StudentMessagesView.as_view(),
+        name="advisor_student_messages",
+    ),
+    path(
         "advisor/documents/<int:pk>/download/",
         DocumentDownloadView.as_view(),
         name="advisor_document_download",
     ),
+    # Student side of the same conversation.
+    path("my-advisor/messages/", MyAdvisorMessagesView.as_view(), name="my_advisor_messages"),
 ]

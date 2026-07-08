@@ -138,3 +138,82 @@ class AdvisorDocumentAccessTests(APITestCase):
 
     def tearDown(self):
         self.doc.file.delete(save=False)
+
+
+class AdvisorMessagingTests(APITestCase):
+    def setUp(self):
+        self.advisor = User.objects.create_user(email="adv@example.com", role=User.Role.ADVISOR)
+        self.other_advisor = User.objects.create_user(email="adv2@example.com", role=User.Role.ADVISOR)
+        self.premium = User.objects.create_user(email="prem@example.com", tier=User.Tier.PREMIUM)
+        self.student = Student.objects.create(user=self.premium, assigned_advisor=self.advisor)
+
+    def _send_as(self, user, url_name, *args, body="hello"):
+        self.client.force_authenticate(user)
+        return self.client.post(reverse(url_name, args=args), {"body": body})
+
+    def test_premium_student_can_message_and_advisor_sees_it(self):
+        resp = self._send_as(self.premium, "my_advisor_messages", body="Need help with SOP")
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+
+        self.client.force_authenticate(self.advisor)
+        resp = self.client.get(reverse("advisor_student_messages", args=[self.student.pk]))
+        self.assertEqual(len(resp.data["messages"]), 1)
+        self.assertEqual(resp.data["messages"][0]["body"], "Need help with SOP")
+        self.assertFalse(resp.data["messages"][0]["mine"])  # advisor didn't send it
+
+    def test_advisor_reply_flows_back_to_student(self):
+        self._send_as(self.advisor, "advisor_student_messages", self.student.pk, body="Send your draft")
+        self.client.force_authenticate(self.premium)
+        resp = self.client.get(reverse("my_advisor_messages"))
+        self.assertEqual(resp.data["messages"][0]["body"], "Send your draft")
+        self.assertFalse(resp.data["messages"][0]["mine"])
+
+    def test_non_premium_student_cannot_send_but_can_read(self):
+        free_user = User.objects.create_user(email="free@example.com", tier=User.Tier.FREE)
+        Student.objects.create(user=free_user, assigned_advisor=self.advisor)
+        # Read allowed
+        self.client.force_authenticate(free_user)
+        self.assertEqual(self.client.get(reverse("my_advisor_messages")).status_code, 200)
+        # Send blocked
+        resp = self.client.post(reverse("my_advisor_messages"), {"body": "hi"})
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_lapsed_premium_thread_becomes_read_only(self):
+        # Premium sends, then subscription lapses to full.
+        self._send_as(self.premium, "my_advisor_messages", body="first")
+        self.premium.tier = User.Tier.FULL
+        self.premium.save(update_fields=["tier"])
+        self.client.force_authenticate(self.premium)
+        self.assertEqual(self.client.get(reverse("my_advisor_messages")).status_code, 200)
+        resp = self.client.post(reverse("my_advisor_messages"), {"body": "again"})
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_advisor_cannot_message_unassigned_student(self):
+        stranger = Student.objects.create(
+            user=User.objects.create_user(email="stranger@example.com", tier=User.Tier.PREMIUM),
+            assigned_advisor=self.other_advisor,
+        )
+        resp = self._send_as(self.advisor, "advisor_student_messages", stranger.pk, body="hi")
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_reading_marks_the_other_partys_messages_read(self):
+        from .services import unread_count_for
+        from .models import AdvisorThread
+
+        self._send_as(self.premium, "my_advisor_messages", body="unread?")
+        thread = AdvisorThread.objects.get(student=self.student)
+        self.assertEqual(unread_count_for(thread, self.advisor), 1)
+        # Advisor opens the thread -> marked read.
+        self.client.force_authenticate(self.advisor)
+        self.client.get(reverse("advisor_student_messages", args=[self.student.pk]))
+        self.assertEqual(unread_count_for(thread, self.advisor), 0)
+
+    def test_student_without_advisor_gets_graceful_empty(self):
+        solo = User.objects.create_user(email="solo@example.com", tier=User.Tier.PREMIUM)
+        Student.objects.create(user=solo)  # no advisor assigned
+        self.client.force_authenticate(solo)
+        resp = self.client.get(reverse("my_advisor_messages"))
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp.data["messages"], [])
+        resp = self.client.post(reverse("my_advisor_messages"), {"body": "anyone?"})
+        self.assertEqual(resp.status_code, status.HTTP_409_CONFLICT)

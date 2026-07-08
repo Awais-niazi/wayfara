@@ -59,6 +59,11 @@ class User(AbstractUser):
 
     objects = UserManager()
 
+    @property
+    def has_advisor_access(self):
+        """Human-advisor messaging is a Premium entitlement."""
+        return self.tier == self.Tier.PREMIUM
+
     def __str__(self):
         return self.email
 
