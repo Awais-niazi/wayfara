@@ -31,6 +31,18 @@ class Student(models.Model):
 
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="student")
 
+    # Human advisor assigned by an admin (premium service). SET_NULL so an
+    # advisor leaving doesn't cascade-delete their students. Filtered to
+    # role=advisor in the admin form; the FK itself stays permissive.
+    assigned_advisor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="advisees",
+        limit_choices_to={"role": "advisor"},
+    )
+
     nationality = models.CharField(max_length=100, default="Pakistan")
     phone = models.CharField(max_length=30, blank=True)
     home_city = models.CharField(max_length=100, blank=True)

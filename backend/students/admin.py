@@ -5,9 +5,10 @@ from .models import Accommodation, Document, Flight, Reminder, Student, Task, Ta
 
 @admin.register(Student)
 class StudentAdmin(admin.ModelAdmin):
-    list_display = ["user", "study_level", "intake", "intake_year", "stage", "current_phase", "onboarding_completed"]
-    list_filter = ["study_level", "intake", "stage", "onboarding_completed"]
-    search_fields = ["user__email"]
+    list_display = ["user", "assigned_advisor", "study_level", "intake", "intake_year", "stage", "current_phase", "onboarding_completed"]
+    list_filter = ["study_level", "intake", "stage", "onboarding_completed", "assigned_advisor"]
+    search_fields = ["user__email", "assigned_advisor__email"]
+    autocomplete_fields = ["user", "assigned_advisor"]
 
 
 @admin.register(Document)

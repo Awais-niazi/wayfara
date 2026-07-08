@@ -39,6 +39,7 @@ INSTALLED_APPS = [
     "corsheaders",
     "django_celery_beat",
     "accounts",
+    "advisor",
     "students",
     "universities",
     "applications",
@@ -129,6 +130,8 @@ REST_FRAMEWORK = {
         "otp_verify": "20/hour",  # model also caps 5 attempts per code
         # Per-target-inbox rate: stops many-IP spamming of one mailbox
         "otp_email": "5/hour",
+        # Advisor invite-link password set — blunts token brute-forcing
+        "advisor_activate": "20/hour",
     },
 }
 
@@ -193,6 +196,9 @@ SCRAPER_ALERT_EMAIL = os.environ.get("SCRAPER_ALERT_EMAIL", DEFAULT_FROM_EMAIL)
 
 OTP_LIFETIME_MINUTES = 10
 OTP_MAX_ATTEMPTS = 5
+
+# Base URL of the advisor web console; activation links are built off it.
+ADVISOR_CONSOLE_URL = os.environ.get("ADVISOR_CONSOLE_URL", "http://localhost:5173/advisor")
 
 # Error tracking — activates only when SENTRY_DSN is set (production).
 # Django + Celery errors both report; PII stays out of events by default.
