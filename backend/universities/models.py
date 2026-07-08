@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models
 
 
@@ -23,6 +24,53 @@ class University(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class UniversityProfile(models.Model):
+    """Curated knowledge base for the handful of high-traffic universities.
+
+    Holds ONLY what the scraper can't produce — ranking/selectivity and a human
+    "verified" stamp on the scraped operational facts. It never re-enters
+    tuition/deadline/campus (the scraper owns those). City guides / cost of
+    living deliberately live in the paid AI layer, not here.
+    """
+
+    class RankingSystem(models.TextChoices):
+        QS = "qs", "QS World University Rankings"
+        THE = "the", "Times Higher Education"
+        ARWU = "arwu", "Academic Ranking of World Universities (Shanghai)"
+
+    university = models.OneToOneField(University, on_delete=models.CASCADE, related_name="profile")
+
+    featured = models.BooleanField(default=False, help_text="Surface among popular universities")
+    sort_order = models.PositiveSmallIntegerField(default=0)
+    overview = models.TextField(blank=True, help_text="Short plain-English editorial overview")
+
+    # Rating / selectivity — curated, with provenance since rankings move yearly.
+    world_ranking = models.PositiveIntegerField(null=True, blank=True)
+    ranking_system = models.CharField(max_length=10, choices=RankingSystem.choices, blank=True)
+    ranking_year = models.PositiveSmallIntegerField(null=True, blank=True)
+    ranking_source_url = models.URLField(blank=True)
+
+    # Human confirmation that the scraper's tuition/deadline/campus are correct
+    # for this (high-traffic) university.
+    operational_verified = models.BooleanField(default=False)
+    verified_at = models.DateField(null=True, blank=True)
+    verified_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+
+    # Editorial content stays gated until a human signs off.
+    needs_review = models.BooleanField(default=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["sort_order", "university__name"]
+
+    def __str__(self):
+        return f"Profile<{self.university.name}>"
 
 
 class Campus(models.Model):
