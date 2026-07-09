@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: wayfara
+          POSTGRES_PASSWORD: wayfara
+          POSTGRES_DB: wayfara_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      # Run tests against Postgres (matches production), not the SQLite fallback.
+      DATABASE_URL: postgres://wayfara:wayfara@localhost:5432/wayfara_test
+      DJANGO_SECRET_KEY: ci-test-key-not-secret
+      DJANGO_DEBUG: "false"
+      # Sentry stays off in CI; the cache falls back to local memory under test.
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Check for missing migrations
+        run: python manage.py makemigrations --check --dry-run
+
+      - name: Run tests
+        run: python manage.py test --verbosity=2
