@@ -18,6 +18,12 @@ class RegisterSerializer(serializers.ModelSerializer):
         return User.objects.create_user(**validated_data)
 
 
+class SetPasswordSerializer(serializers.Serializer):
+    """Post-verification password creation (onboarding step 3)."""
+
+    password = serializers.CharField(write_only=True, validators=[validate_password])
+
+
 class RequestOTPSerializer(serializers.Serializer):
     email = serializers.EmailField()
 

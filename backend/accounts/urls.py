@@ -6,6 +6,7 @@ from .views import (
     MeView,
     RegisterView,
     RequestOTPView,
+    SetPasswordView,
     VerifyOTPView,
 )
 
@@ -16,4 +17,5 @@ urlpatterns = [
     path("auth/logout/", LogoutView.as_view(), name="logout"),
     path("auth/otp/request/", RequestOTPView.as_view(), name="otp_request"),
     path("auth/otp/verify/", VerifyOTPView.as_view(), name="otp_verify"),
+    path("auth/password/", SetPasswordView.as_view(), name="set_password"),
 ]

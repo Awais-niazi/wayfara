@@ -18,11 +18,50 @@ import {
 import "./global.css";
 import { colors } from "./theme";
 import type { RootStackParamList } from "./navigation/types";
+import { AuthProvider, useAuth } from "./context/AuthContext";
 import WelcomeScreen from "./screens/WelcomeScreen";
-import CreateAccountScreen from "./screens/CreateAccountScreen";
+import GetStartedScreen from "./screens/GetStartedScreen";
+import LoginScreen from "./screens/LoginScreen";
+import VerifyOtpScreen from "./screens/VerifyOtpScreen";
+import CreatePasswordScreen from "./screens/CreatePasswordScreen";
 import HomeScreen from "./screens/HomeScreen";
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
+
+/** Auth-gated stacks: signed-out onboarding flow vs signed-in app. */
+function RootNavigator() {
+  const { status } = useAuth();
+
+  // Session bootstrap in flight — stay on the (canvas-colored) splash.
+  if (status === "loading") return null;
+
+  return (
+    <Stack.Navigator
+      screenOptions={{
+        headerShown: false,
+        contentStyle: { backgroundColor: colors.canvas },
+        animation: "slide_from_right",
+      }}
+    >
+      {status === "signedIn" ? (
+        <Stack.Screen name="Home" component={HomeScreen} />
+      ) : status === "needsPassword" ? (
+        // Onboarding step 3: email verified, password pending. Its own stack
+        // so neither the form nor the dashboard is reachable around it.
+        <Stack.Screen name="CreatePassword" component={CreatePasswordScreen} />
+      ) : (
+        <>
+          {/* Landing: Welcome hero with the "Get Started" CTA → profile form.
+              No register wall — the form itself creates the account. */}
+          <Stack.Screen name="Welcome" component={WelcomeScreen} />
+          <Stack.Screen name="GetStarted" component={GetStartedScreen} />
+          <Stack.Screen name="Login" component={LoginScreen} />
+          <Stack.Screen name="VerifyOtp" component={VerifyOtpScreen} />
+        </>
+      )}
+    </Stack.Navigator>
+  );
+}
 
 export default function App() {
   const [fontsLoaded] = useFonts({
@@ -41,21 +80,12 @@ export default function App() {
 
   return (
     <SafeAreaProvider>
-      <NavigationContainer>
-        <Stack.Navigator
-          initialRouteName="Welcome"
-          screenOptions={{
-            headerShown: false,
-            contentStyle: { backgroundColor: colors.canvas },
-            animation: "slide_from_right",
-          }}
-        >
-          <Stack.Screen name="Welcome" component={WelcomeScreen} />
-          <Stack.Screen name="CreateAccount" component={CreateAccountScreen} />
-          <Stack.Screen name="Home" component={HomeScreen} />
-        </Stack.Navigator>
-      </NavigationContainer>
-      <StatusBar style="dark" />
+      <AuthProvider>
+        <NavigationContainer>
+          <RootNavigator />
+        </NavigationContainer>
+        <StatusBar style="dark" />
+      </AuthProvider>
     </SafeAreaProvider>
   );
 }

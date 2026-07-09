@@ -63,12 +63,12 @@ export default function WelcomeScreen({ navigation }: Props) {
           </View>
 
           <PrimaryButton
-            label="Create free account"
-            onPress={() => navigation.navigate("CreateAccount")}
+            label="Get Started"
+            onPress={() => navigation.navigate("GetStarted")}
           />
           <GhostButton
             label="I already have an account"
-            onPress={() => navigation.navigate("Home")}
+            onPress={() => navigation.navigate("Login")}
             style={styles.loginBtn}
           />
         </View>

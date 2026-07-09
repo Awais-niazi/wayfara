@@ -48,6 +48,35 @@ class AuthTests(APITestCase):
         self.assertEqual(user.tier, User.Tier.FREE)
 
 
+class SetPasswordTests(APITestCase):
+    def test_requires_auth(self):
+        resp = self.client.post(reverse("set_password"), {"password": "SafePass!2026"})
+        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_sets_password_after_otp_onboarding(self):
+        # Onboarding creates a passwordless account; step 3 makes it usable.
+        user = User.objects.create_user(email="pw@example.com")
+        self.assertFalse(user.has_usable_password())
+        self.client.force_authenticate(user)
+
+        resp = self.client.post(reverse("set_password"), {"password": "SafePass!2026"})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        user.refresh_from_db()
+        self.assertTrue(user.check_password("SafePass!2026"))
+
+        # /me/ now reports the onboarding step as done.
+        resp = self.client.get(reverse("me"))
+        self.assertTrue(resp.data["has_password"])
+
+    def test_rejects_weak_password(self):
+        user = User.objects.create_user(email="weak@example.com")
+        self.client.force_authenticate(user)
+        resp = self.client.post(reverse("set_password"), {"password": "123"})
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        user.refresh_from_db()
+        self.assertFalse(user.has_usable_password())
+
+
 class MeAndLogoutTests(APITestCase):
     def test_me_requires_auth(self):
         resp = self.client.get(reverse("me"))

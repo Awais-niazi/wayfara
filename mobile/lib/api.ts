@@ -1,45 +1,261 @@
 /**
- * Minimal API client for the Wayfara Django backend.
- * Base URL comes from app config (extra.apiUrl) so dev/prod can differ.
+ * Typed API client for the Wayfara Django backend.
+ *
+ * Auth model: passwordless OTP. The Get Started form (`onboarding`) creates
+ * the account and emails a 6-digit code; `verifyOtp` exchanges email + code
+ * for JWT tokens (it is also the login). Tokens rotate on refresh — the
+ * refresh endpoint returns BOTH a new access and a new refresh token.
+ *
+ * The client is transport-only: token persistence and refresh-on-401 live in
+ * `context/AuthContext.tsx`, which registers itself via `configureApi`.
  */
 import Constants from "expo-constants";
+import { Platform } from "react-native";
 
-const API_URL: string =
-  (Constants.expoConfig?.extra?.apiUrl as string | undefined) ??
-  "http://localhost:8000";
+function defaultApiUrl(): string {
+  const configured = Constants.expoConfig?.extra?.apiUrl as string | undefined;
+  if (configured) return configured;
+  // Android emulators reach the host machine at 10.0.2.2, not localhost.
+  if (Platform.OS === "android") return "http://10.0.2.2:8000";
+  return "http://localhost:8000";
+}
+
+export const API_URL = defaultApiUrl();
+
+// ─── Wire types (mirror the DRF serializers) ────────────────────────────────
 
 export interface Tokens {
   access: string;
   refresh: string;
 }
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, {
-    ...init,
-    headers: { "Content-Type": "application/json", ...init.headers },
-  });
-  if (!res.ok) {
-    throw new Error(`API ${res.status}: ${await res.text()}`);
+export interface Me {
+  email: string;
+  role: "student" | "advisor" | string;
+  tier: "free" | "full" | "premium" | string;
+  email_verified: boolean;
+  /** False until onboarding step 3 (create password) is done. */
+  has_password: boolean;
+  onboarding_complete: boolean;
+}
+
+export type StudyLevel = "undergraduate" | "masters";
+export type LanguageTestStatus = "not_taken" | "booked" | "taken";
+export type Intake = "september" | "january";
+export type Stage = "exploring" | "ready" | "applied";
+
+export interface OnboardingForm {
+  email: string;
+  study_level: StudyLevel;
+  field_of_study: string;
+  grades?: string;
+  language_test_status?: LanguageTestStatus;
+  language_test_score?: string;
+  budget_eur_per_year?: number;
+  intake?: Intake;
+  intake_year?: number;
+  stage?: Stage;
+}
+
+export interface Profile {
+  id: number;
+  email: string;
+  first_name: string;
+  last_name: string;
+  tier: string;
+  nationality: string;
+  phone: string;
+  home_city: string;
+  study_level: StudyLevel | "";
+  field_of_study: string;
+  grades: string;
+  language_test_status: LanguageTestStatus | "";
+  language_test_score: string;
+  budget_eur_per_year: number | null;
+  intake: Intake | "";
+  intake_year: number | null;
+  stage: Stage | "";
+  current_phase: number;
+  onboarding_completed: boolean;
+}
+
+export interface Match {
+  id: number;
+  program: number;
+  program_name: string;
+  degree_level: string;
+  university: string;
+  city: string;
+  campus: string | null;
+  tuition_fee_eur: string | null; // DRF DecimalField serializes as string
+  duration_years: string | null;
+  application_deadline: string | null; // ISO date
+  world_ranking: number | null;
+  featured: boolean;
+  data_verified: boolean;
+  fit: "safety" | "good_fit" | "reach";
+  score: string; // 0–100, decimal string
+  created_at: string;
+}
+
+export type TaskStatus = "pending" | "completed" | "skipped";
+
+export interface Task {
+  id: number;
+  phase: number;
+  title: string;
+  description: string;
+  due_date: string | null; // ISO date
+  order: number;
+  status: TaskStatus;
+  is_critical: boolean;
+  completed_at: string | null;
+}
+
+// ─── Error type ──────────────────────────────────────────────────────────────
+
+export class ApiError extends Error {
+  status: number;
+  body: unknown;
+
+  constructor(status: number, body: unknown) {
+    super(
+      typeof body === "object" && body !== null && "detail" in body
+        ? String((body as { detail: unknown }).detail)
+        : `API error ${status}`,
+    );
+    this.status = status;
+    this.body = body;
   }
-  return res.json() as Promise<T>;
 }
 
-export function register(email: string, password: string) {
-  return request<{ email: string }>("/api/auth/register/", {
-    method: "POST",
-    body: JSON.stringify({ email, password }),
+// ─── Core request machinery ──────────────────────────────────────────────────
+
+interface ApiHooks {
+  /** Returns the current access token, or null when signed out. */
+  getAccessToken: () => string | null;
+  /** Called on a 401 from an authed request; should refresh and return the
+   *  new access token, or null if the session is unrecoverable. */
+  onUnauthorized: () => Promise<string | null>;
+}
+
+let hooks: ApiHooks = {
+  getAccessToken: () => null,
+  onUnauthorized: async () => null,
+};
+
+/** AuthContext registers its token accessors here at mount. */
+export function configureApi(next: ApiHooks) {
+  hooks = next;
+}
+
+async function request<T>(
+  path: string,
+  init: RequestInit = {},
+  { auth = true, retried = false }: { auth?: boolean; retried?: boolean } = {},
+): Promise<T> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(init.headers as Record<string, string> | undefined),
+  };
+  if (auth) {
+    const token = hooks.getAccessToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+  }
+
+  const res = await fetch(`${API_URL}${path}`, { ...init, headers });
+
+  if (res.status === 401 && auth && !retried) {
+    const fresh = await hooks.onUnauthorized();
+    if (fresh) return request<T>(path, init, { auth, retried: true });
+  }
+
+  if (!res.ok) {
+    let body: unknown;
+    try {
+      body = await res.json();
+    } catch {
+      body = await res.text();
+    }
+    throw new ApiError(res.status, body);
+  }
+
+  if (res.status === 204 || res.status === 205) return undefined as T;
+  return (await res.json()) as T;
+}
+
+const post = (body: unknown): RequestInit => ({
+  method: "POST",
+  body: JSON.stringify(body),
+});
+
+// ─── Endpoints ───────────────────────────────────────────────────────────────
+
+/** The Get Started form (anonymous). Creates the account + emails the OTP. */
+export function submitOnboarding(form: OnboardingForm) {
+  return request<{ detail: string; email: string }>("/api/onboarding/", post(form), {
+    auth: false,
   });
 }
 
-export function login(email: string, password: string) {
-  return request<Tokens>("/api/auth/token/", {
-    method: "POST",
-    body: JSON.stringify({ email, password }),
+/** Send a login code to an existing account. Always 200 (no enumeration). */
+export function requestOtp(email: string) {
+  return request<{ detail: string }>("/api/auth/otp/request/", post({ email }), {
+    auth: false,
   });
 }
 
-export function getProfile(access: string) {
-  return request("/api/profile/", {
-    headers: { Authorization: `Bearer ${access}` },
+/** Exchange email + 6-digit code for JWT tokens. This IS the login. */
+export function verifyOtp(email: string, code: string) {
+  return request<Tokens>("/api/auth/otp/verify/", post({ email, code }), {
+    auth: false,
   });
+}
+
+/** Rotate the refresh token; returns a new access AND refresh pair. */
+export function refreshTokens(refresh: string) {
+  return request<Tokens>("/api/auth/token/refresh/", post({ refresh }), {
+    auth: false,
+  });
+}
+
+/** Session bootstrap — 401 means signed out. */
+export function getMe() {
+  return request<Me>("/api/me/");
+}
+
+/** Onboarding step 3: create the account password (authenticated). */
+export function setPassword(password: string) {
+  return request<{ detail: string }>("/api/auth/password/", post({ password }));
+}
+
+/** Blacklist the refresh token server-side. */
+export function logout(refresh: string) {
+  return request<void>("/api/auth/logout/", post({ refresh }));
+}
+
+export function getProfile() {
+  return request<Profile>("/api/profile/");
+}
+
+export function updateProfile(patch: Partial<Profile>) {
+  return request<Profile>("/api/profile/", {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+/** University recommendations, best fit first. */
+export function getMatches() {
+  return request<Match[]>("/api/matches/");
+}
+
+/** The journey plan; optionally scoped to one phase. */
+export function getTasks(phase?: number) {
+  const qs = phase !== undefined ? `?phase=${phase}` : "";
+  return request<Task[]>(`/api/tasks/${qs}`);
+}
+
+export function setTaskStatus(id: number, status: TaskStatus) {
+  return request<Task>(`/api/tasks/${id}/status/`, post({ status }));
 }

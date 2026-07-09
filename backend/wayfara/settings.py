@@ -128,6 +128,7 @@ REST_FRAMEWORK = {
         "onboarding": "10/hour",
         "otp_request": "10/hour",
         "otp_verify": "20/hour",  # model also caps 5 attempts per code
+        "set_password": "10/hour",
         # Per-target-inbox rate: stops many-IP spamming of one mailbox
         "otp_email": "5/hour",
         # Advisor invite-link password set — blunts token brute-forcing

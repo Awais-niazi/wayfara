@@ -1,12 +1,21 @@
 /**
  * 03 — HOME · UNIVERSITY MATCHES
- * The signed-in dashboard: greeting, savings banner, horizontally-scrolling
- * university match cards, application progress, the next-action nudge, a
- * quick-actions grid, and the bottom tab bar. Data is mock (from the mockup);
- * swap the arrays for `/api/matches` + `/api/tasks` when wiring the backend.
+ * The signed-in dashboard, wired to the real API:
+ *   - greeting        ← GET /api/profile/  (name/email)
+ *   - match cards     ← GET /api/matches/  (best fit first)
+ *   - journey card    ← GET /api/tasks/    (per-phase progress)
+ *   - next action     ← first pending task by due date
+ * The savings banner and quick-actions grid remain static design elements.
  */
-import React from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable } from "react-native";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  Pressable,
+  ActivityIndicator,
+} from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -25,30 +34,16 @@ import {
   ChatIcon,
   ProfileIcon,
 } from "../components/icons";
+import { getMatches, getProfile, getTasks, type Match, type Profile, type Task } from "../lib/api";
+import { useAuth } from "../context/AuthContext";
 
-type Uni = {
-  key: string;
-  name: string;
-  meta: string;
-  match: string;
-  tuition: string;
-  intake: string;
-  badge: string;
-  badgeColor: string;
-  hero: string;
-};
-
-const UNIVERSITIES: Uni[] = [
-  { key: "aalto", name: "Aalto University", meta: "Espoo · MSc Computer Science", match: "94% match", tuition: "€15,000", intake: "Aug 2026", badge: "A", badgeColor: colors.accent, hero: "#EAD9C0" },
-  { key: "helsinki", name: "Univ. of Helsinki", meta: "Helsinki · MSc Data Science", match: "91% match", tuition: "€18,000", intake: "Aug 2026", badge: "H", badgeColor: "#C7502F", hero: "#E4D2E8" },
-  { key: "lut", name: "LUT University", meta: "Lappeenranta · MSc Software", match: "88% match", tuition: "€13,500", intake: "Aug 2026", badge: "L", badgeColor: "#F49A1A", hero: "#E2DFC6" },
-];
-
-type AppProgress = { key: string; badge: string; badgeColor: string; label: string; steps: string; pct: number };
-
-const APPLICATIONS: AppProgress[] = [
-  { key: "aalto", badge: "A", badgeColor: colors.accent, label: "Aalto · MSc CS", steps: "3 / 5 steps", pct: 0.6 },
-  { key: "helsinki", badge: "H", badgeColor: "#C7502F", label: "Helsinki · MSc Data Sci", steps: "1 / 5 steps", pct: 0.2 },
+// Rotating visual identity for match cards (avatar + hero tint).
+const CARD_COLORS = [
+  { badge: colors.accent, hero: "#EAD9C0" },
+  { badge: "#C7502F", hero: "#E4D2E8" },
+  { badge: "#F49A1A", hero: "#E2DFC6" },
+  { badge: "#1F8A5B", hero: "#D8E8DC" },
+  { badge: "#2A6FDB", hero: "#D9E4F2" },
 ];
 
 type QuickAction = { key: string; title: string; sub: string; bg: string; icon: React.ReactNode };
@@ -68,29 +63,48 @@ const TABS = [
   { key: "profile", label: "Profile", Icon: ProfileIcon, active: false },
 ];
 
-function UniCard({ uni }: { uni: Uni }) {
+const euro = (v: string | null) =>
+  v === null ? "—" : `€${Math.round(parseFloat(v)).toLocaleString("en-US")}`;
+
+const shortDate = (iso: string | null) =>
+  iso === null
+    ? "—"
+    : new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+
+function greetingForNow(): string {
+  const h = new Date().getHours();
+  if (h < 12) return "Good morning";
+  if (h < 18) return "Good afternoon";
+  return "Good evening";
+}
+
+function UniCard({ match, index }: { match: Match; index: number }) {
+  const c = CARD_COLORS[index % CARD_COLORS.length];
+  const pct = Math.round(parseFloat(match.score));
   return (
     <View style={styles.uniCard}>
-      <View style={[styles.uniHero, { backgroundColor: uni.hero }]}>
+      <View style={[styles.uniHero, { backgroundColor: c.hero }]}>
         <Text style={styles.uniHeroText}>campus</Text>
         <View style={styles.matchBadge}>
-          <Text style={styles.matchText}>{uni.match}</Text>
+          <Text style={styles.matchText}>{pct}% match</Text>
         </View>
-        <View style={[styles.uniAvatar, { backgroundColor: uni.badgeColor }]}>
-          <Text style={styles.uniAvatarText}>{uni.badge}</Text>
+        <View style={[styles.uniAvatar, { backgroundColor: c.badge }]}>
+          <Text style={styles.uniAvatarText}>{match.university.charAt(0)}</Text>
         </View>
       </View>
       <View style={styles.uniBody}>
-        <Text style={styles.uniName}>{uni.name}</Text>
-        <Text style={styles.uniMeta}>{uni.meta}</Text>
+        <Text style={styles.uniName} numberOfLines={1}>{match.university}</Text>
+        <Text style={styles.uniMeta} numberOfLines={1}>
+          {match.city} · {match.program_name}
+        </Text>
         <View style={styles.uniStats}>
           <View>
             <Text style={styles.statLabel}>Tuition/yr</Text>
-            <Text style={styles.statValue}>{uni.tuition}</Text>
+            <Text style={styles.statValue}>{euro(match.tuition_fee_eur)}</Text>
           </View>
           <View>
-            <Text style={styles.statLabel}>Intake</Text>
-            <Text style={styles.statValue}>{uni.intake}</Text>
+            <Text style={styles.statLabel}>Deadline</Text>
+            <Text style={styles.statValue}>{shortDate(match.application_deadline)}</Text>
           </View>
         </View>
         <Pressable style={styles.viewBtn}>
@@ -102,6 +116,72 @@ function UniCard({ uni }: { uni: Uni }) {
 }
 
 export default function HomeScreen() {
+  const { signOut } = useAuth();
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [matches, setMatches] = useState<Match[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [p, m, t] = await Promise.all([getProfile(), getMatches(), getTasks()]);
+      setProfile(p);
+      setMatches(m);
+      setTasks(t);
+    } catch {
+      setError("Couldn't load your data. Check your connection and the server.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  // ── Derived view data ──────────────────────────────────────────────────────
+  const displayName = profile?.first_name || profile?.email.split("@")[0] || "there";
+
+  const today = new Date().toLocaleDateString("en-GB", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  });
+
+  // Journey progress: tasks grouped by phase, current phase first.
+  const phaseProgress = useMemo(() => {
+    const byPhase = new Map<number, { done: number; total: number }>();
+    for (const t of tasks) {
+      const e = byPhase.get(t.phase) ?? { done: 0, total: 0 };
+      e.total += 1;
+      if (t.status === "completed") e.done += 1;
+      byPhase.set(t.phase, e);
+    }
+    return [...byPhase.entries()]
+      .sort(([a], [b]) => a - b)
+      .filter(([, v]) => v.total > 0)
+      .slice(0, 3)
+      .map(([phase, v]) => ({ phase, ...v }));
+  }, [tasks]);
+
+  const nextTask = useMemo(() => {
+    const pending = tasks.filter((t) => t.status === "pending" && t.due_date);
+    pending.sort((a, b) => (a.due_date! < b.due_date! ? -1 : 1));
+    return pending[0] ?? null;
+  }, [tasks]);
+
+  const matchContext = [
+    profile?.field_of_study,
+    profile?.budget_eur_per_year != null
+      ? `€${(profile.budget_eur_per_year / 1000).toFixed(0)}k budget`
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" & ");
+
   return (
     <View style={styles.root}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollBody}>
@@ -110,110 +190,149 @@ export default function HomeScreen() {
             {/* top bar */}
             <View style={styles.topBar}>
               <View>
-                <Text style={styles.date}>Monday, 8 July</Text>
-                <Text style={styles.greeting}>Good morning, Aarav</Text>
+                <Text style={styles.date}>{today}</Text>
+                <Text style={styles.greeting}>
+                  {greetingForNow()}, {displayName}
+                </Text>
               </View>
               <View style={styles.topActions}>
                 <Pressable style={styles.iconBtn}>
                   <BellIcon size={20} color="#4A3D31" />
                   <View style={styles.notifDot} />
                 </Pressable>
-                <LinearGradient colors={["#FFB43A", colors.accent]} style={styles.avatar}>
-                  <Text style={styles.avatarText}>A</Text>
-                </LinearGradient>
+                {/* Tap avatar to sign out (until the Profile tab exists). */}
+                <Pressable onPress={signOut}>
+                  <LinearGradient colors={["#FFB43A", colors.accent]} style={styles.avatar}>
+                    <Text style={styles.avatarText}>
+                      {displayName.charAt(0).toUpperCase()}
+                    </Text>
+                  </LinearGradient>
+                </Pressable>
               </View>
             </View>
 
-            {/* savings banner */}
-            <LinearGradient colors={["#2A2119", "#3A2C20"]} style={styles.savingsBanner}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.savingsCaption}>You've saved so far</Text>
-                <Text style={styles.savingsAmount}>€4,320</Text>
-                <Text style={styles.savingsNote}>
-                  that's <Text style={styles.savingsAccent}>80% less</Text> than a €5,400 agent
-                </Text>
+            {loading && (
+              <View style={styles.loadingBox}>
+                <ActivityIndicator color={colors.accent} />
+                <Text style={styles.loadingText}>Loading your journey…</Text>
               </View>
-              <View style={styles.savingsRing}>
-                <Text style={styles.savingsRingText}>80%</Text>
-              </View>
-            </LinearGradient>
+            )}
+
+            {error && !loading && (
+              <Pressable style={styles.errorBox} onPress={load}>
+                <Text style={styles.errorText}>{error}</Text>
+                <Text style={styles.errorRetry}>Tap to retry</Text>
+              </Pressable>
+            )}
 
             {/* recommended header */}
-            <View style={styles.sectionHead}>
-              <Text style={styles.sectionTitle}>Recommended for you</Text>
-              <Text style={styles.seeAll}>See all</Text>
-            </View>
-            <Text style={styles.sectionSub}>Based on your CS background & €18k budget</Text>
+            {!loading && !error && (
+              <>
+                <View style={styles.sectionHead}>
+                  <Text style={styles.sectionTitle}>Recommended for you</Text>
+                  <Text style={styles.seeAll}>See all</Text>
+                </View>
+                <Text style={styles.sectionSub}>
+                  {matches.length > 0
+                    ? matchContext
+                      ? `Based on your ${matchContext}`
+                      : "Matched to your profile"
+                    : "We're matching universities to your profile — check back in a minute."}
+                </Text>
+              </>
+            )}
           </View>
 
           {/* uni cards horizontal scroll */}
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.uniRow}
-          >
-            {UNIVERSITIES.map((u) => (
-              <UniCard key={u.key} uni={u} />
-            ))}
-          </ScrollView>
+          {!loading && !error && matches.length > 0 && (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.uniRow}
+            >
+              {matches.slice(0, 10).map((m, i) => (
+                <UniCard key={m.id} match={m} index={i} />
+              ))}
+            </ScrollView>
+          )}
 
-          <View style={styles.pad}>
-            {/* applications progress */}
-            <View style={styles.appsCard}>
-              <View style={styles.appsHead}>
-                <Text style={styles.appsTitle}>Your applications</Text>
-                <View style={styles.activePill}>
-                  <Text style={styles.activePillText}>2 active</Text>
-                </View>
-              </View>
-              <View style={styles.appsList}>
-                {APPLICATIONS.map((a) => (
-                  <View key={a.key}>
-                    <View style={styles.appRow}>
-                      <View style={styles.appRowLeft}>
-                        <View style={[styles.appBadge, { backgroundColor: a.badgeColor }]}>
-                          <Text style={styles.appBadgeText}>{a.badge}</Text>
-                        </View>
-                        <Text style={styles.appLabel}>{a.label}</Text>
-                      </View>
-                      <Text style={styles.appSteps}>{a.steps}</Text>
-                    </View>
-                    <View style={styles.track}>
-                      <View
-                        style={[styles.trackFill, { width: `${a.pct * 100}%`, backgroundColor: a.badgeColor }]}
-                      />
+          {!loading && !error && (
+            <View style={styles.pad}>
+              {/* journey progress (from the timeline engine) */}
+              {phaseProgress.length > 0 && (
+                <View style={styles.appsCard}>
+                  <View style={styles.appsHead}>
+                    <Text style={styles.appsTitle}>Your journey</Text>
+                    <View style={styles.activePill}>
+                      <Text style={styles.activePillText}>
+                        {tasks.filter((t) => t.status === "pending").length} to do
+                      </Text>
                     </View>
                   </View>
+                  <View style={styles.appsList}>
+                    {phaseProgress.map(({ phase, done, total }, i) => {
+                      const c = CARD_COLORS[i % CARD_COLORS.length].badge;
+                      return (
+                        <View key={phase}>
+                          <View style={styles.appRow}>
+                            <View style={styles.appRowLeft}>
+                              <View style={[styles.appBadge, { backgroundColor: c }]}>
+                                <Text style={styles.appBadgeText}>{phase}</Text>
+                              </View>
+                              <Text style={styles.appLabel}>Phase {phase}</Text>
+                            </View>
+                            <Text style={styles.appSteps}>
+                              {done} / {total} tasks
+                            </Text>
+                          </View>
+                          <View style={styles.track}>
+                            <View
+                              style={[
+                                styles.trackFill,
+                                { width: `${total ? (done / total) * 100 : 0}%`, backgroundColor: c },
+                              ]}
+                            />
+                          </View>
+                        </View>
+                      );
+                    })}
+                  </View>
+                </View>
+              )}
+
+              {/* next action */}
+              {nextTask && (
+                <Pressable style={styles.nextCard}>
+                  <View style={styles.nextIcon}>
+                    <UploadIcon size={20} color="#fff" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.nextCaption}>
+                      NEXT UP · DUE {shortDate(nextTask.due_date).toUpperCase()}
+                    </Text>
+                    <Text style={styles.nextTitle} numberOfLines={2}>
+                      {nextTask.title}
+                    </Text>
+                  </View>
+                  <ChevronRightIcon size={20} color="#B4841A" />
+                </Pressable>
+              )}
+
+              {/* quick actions */}
+              <Text style={styles.sectionTitleLoose}>Get it all done</Text>
+              <View style={styles.grid}>
+                {QUICK_ACTIONS.map((q) => (
+                  <Pressable key={q.key} style={styles.gridCell}>
+                    <View style={[styles.gridIcon, { backgroundColor: q.bg }]}>{q.icon}</View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.gridTitle}>{q.title}</Text>
+                      <Text style={styles.gridSub}>{q.sub}</Text>
+                    </View>
+                  </Pressable>
                 ))}
               </View>
             </View>
-
-            {/* next action */}
-            <Pressable style={styles.nextCard}>
-              <View style={styles.nextIcon}>
-                <UploadIcon size={20} color="#fff" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.nextCaption}>NEXT UP · DUE JUL 20</Text>
-                <Text style={styles.nextTitle}>Upload your bachelor's transcript</Text>
-              </View>
-              <ChevronRightIcon size={20} color="#B4841A" />
-            </Pressable>
-
-            {/* quick actions */}
-            <Text style={styles.sectionTitleLoose}>Get it all done</Text>
-            <View style={styles.grid}>
-              {QUICK_ACTIONS.map((q) => (
-                <Pressable key={q.key} style={styles.gridCell}>
-                  <View style={[styles.gridIcon, { backgroundColor: q.bg }]}>{q.icon}</View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.gridTitle}>{q.title}</Text>
-                    <Text style={styles.gridSub}>{q.sub}</Text>
-                  </View>
-                </Pressable>
-              ))}
-            </View>
-          </View>
+          )}
         </SafeAreaView>
       </ScrollView>
 
@@ -225,7 +344,12 @@ export default function HomeScreen() {
             return (
               <Pressable key={key} style={styles.tab}>
                 <Icon size={24} color={color} />
-                <Text style={[styles.tabLabel, { color, fontFamily: active ? fonts.bodyBold : fonts.bodySemi }]}>
+                <Text
+                  style={[
+                    styles.tabLabel,
+                    { color, fontFamily: active ? fonts.bodyBold : fonts.bodySemi },
+                  ]}
+                >
                   {label}
                 </Text>
               </Pressable>
@@ -270,29 +394,20 @@ const styles = StyleSheet.create({
   avatar: { width: 42, height: 42, borderRadius: 13, alignItems: "center", justifyContent: "center" },
   avatarText: { fontFamily: fonts.display, fontSize: 16, color: "#fff" },
 
-  savingsBanner: {
-    marginTop: 18,
+  loadingBox: { alignItems: "center", gap: 10, paddingVertical: 60 },
+  loadingText: { fontFamily: fonts.bodySemi, fontSize: 13.5, color: colors.textFaint },
+  errorBox: {
+    marginTop: 24,
+    backgroundColor: "#FCEBE7",
+    borderWidth: 1,
+    borderColor: "#F3C4B8",
     borderRadius: radius["2xl"],
-    paddingVertical: 16,
-    paddingHorizontal: 18,
-    flexDirection: "row",
+    padding: 18,
     alignItems: "center",
-    justifyContent: "space-between",
+    gap: 4,
   },
-  savingsCaption: { fontFamily: fonts.bodySemi, fontSize: 12.5, color: "#D8C4AE" },
-  savingsAmount: { fontFamily: fonts.display, fontSize: 26, color: "#fff", marginTop: 3, lineHeight: 26 },
-  savingsNote: { fontFamily: fonts.bodyRegular, fontSize: 12, color: "#B7A48E", marginTop: 5 },
-  savingsAccent: { color: colors.accent, fontFamily: fonts.bodyBold },
-  savingsRing: {
-    width: 62,
-    height: 62,
-    borderRadius: 31,
-    borderWidth: 5,
-    borderColor: "rgba(248,89,60,0.25)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  savingsRingText: { fontFamily: fonts.display, fontSize: 15, color: "#fff" },
+  errorText: { fontFamily: fonts.bodySemi, fontSize: 13.5, color: "#B3402A", textAlign: "center" },
+  errorRetry: { fontFamily: fonts.bodyBold, fontSize: 13, color: colors.accent },
 
   sectionHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 26 },
   sectionTitle: { fontFamily: fonts.display, fontSize: 18, letterSpacing: -0.3, color: colors.ink },

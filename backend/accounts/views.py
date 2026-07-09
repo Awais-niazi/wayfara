@@ -11,6 +11,7 @@ from .serializers import (
     DeviceTokenSerializer,
     RegisterSerializer,
     RequestOTPSerializer,
+    SetPasswordSerializer,
     VerifyOTPSerializer,
 )
 from .services import issue_and_send_otp, verify_otp
@@ -64,6 +65,25 @@ class VerifyOTPView(APIView):
         return Response({"access": str(refresh.access_token), "refresh": str(refresh)})
 
 
+class SetPasswordView(APIView):
+    """Set the account password (authenticated).
+
+    Onboarding step 3: after the OTP verifies the email, the user creates a
+    password before entering the dashboard. Also serves as a plain password
+    change for already-established accounts.
+    """
+
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "set_password"
+
+    def post(self, request):
+        serializer = SetPasswordSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        request.user.set_password(serializer.validated_data["password"])
+        request.user.save(update_fields=["password"])
+        return Response({"detail": "Password set."})
+
+
 class MeView(APIView):
     """Session bootstrap: one call on app launch decides the route.
 
@@ -79,6 +99,8 @@ class MeView(APIView):
                 "role": user.role,
                 "tier": user.tier,
                 "email_verified": user.email_verified,
+                # Onboarding step 3 (create password) is pending while False.
+                "has_password": user.has_usable_password(),
                 # Student profile is created by onboarding, so its existence
                 # is the onboarded signal. Advisors have no Student profile.
                 "onboarding_complete": hasattr(user, "student"),
