@@ -200,6 +200,10 @@ OTP_MAX_ATTEMPTS = 5
 # Base URL of the advisor web console; activation links are built off it.
 ADVISOR_CONSOLE_URL = os.environ.get("ADVISOR_CONSOLE_URL", "http://localhost:5173/advisor")
 
+# Expo push notifications. No-ops without registered device tokens, so it is
+# safe on by default; set PUSH_ENABLED=false to hard-disable delivery.
+PUSH_ENABLED = os.environ.get("PUSH_ENABLED", "true").lower() == "true"
+
 # Error tracking — activates only when SENTRY_DSN is set (production).
 # Django + Celery errors both report; PII stays out of events by default.
 SENTRY_DSN = os.environ.get("SENTRY_DSN", "")

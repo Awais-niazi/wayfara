@@ -12,6 +12,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.tokens import default_token_generator
 from django.core.exceptions import ValidationError
 from django.core.mail import send_mail
+from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 from django.utils.encoding import force_bytes, force_str
@@ -91,11 +92,57 @@ def get_thread_for_student(student):
     return thread
 
 
-def post_message(thread, sender, body):
-    message = AdvisorMessage.objects.create(thread=thread, sender=sender, body=body)
+def post_message(thread, sender, body="", audio=None, audio_duration=None):
+    message = AdvisorMessage.objects.create(
+        thread=thread, sender=sender, body=body,
+        audio=audio, audio_duration_seconds=audio_duration,
+    )
     thread.last_message_at = message.created_at
     thread.save(update_fields=["last_message_at"])
+    # Notify the *other* participant. Delegated to Celery so the send request
+    # returns immediately; the task is a thin invoker of notify_new_message().
+    from .tasks import notify_new_message_task
+
+    transaction.on_commit(lambda: notify_new_message_task.delay(message.id))
     return message
+
+
+def recipient_of(message):
+    """The participant who should be notified: whoever didn't send it."""
+    thread = message.thread
+    student_user = thread.student.user
+    advisor = thread.advisor
+    if message.sender_id == student_user.id:
+        return advisor
+    return student_user
+
+
+def notify_new_message(message_id):
+    """Push a 'new message' notification to the other participant. Business
+    logic for the Celery task lives here, not in the task."""
+    from accounts.push import send_push_to_user
+
+    message = (
+        AdvisorMessage.objects.select_related(
+            "thread__student__user", "thread__advisor", "sender"
+        )
+        .filter(id=message_id)
+        .first()
+    )
+    if message is None:
+        return
+    recipient = recipient_of(message)
+    if recipient is None:
+        return
+    sender_is_student = message.sender_id == message.thread.student.user_id
+    title = "Your advisor" if sender_is_student else "New message from your advisor"
+    preview = message.body[:120] if message.body else "Sent you a voice note"
+    send_push_to_user(
+        recipient,
+        title=title,
+        body=preview,
+        data={"type": "advisor_message", "thread_id": message.thread_id},
+    )
 
 
 def mark_read_by(thread, reader):

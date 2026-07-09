@@ -10,6 +10,8 @@ from rest_framework.test import APITestCase
 
 from students.models import Document, Student
 
+from .services import get_thread_for_student, post_message
+
 User = get_user_model()
 
 
@@ -217,3 +219,102 @@ class AdvisorMessagingTests(APITestCase):
         self.assertEqual(resp.data["messages"], [])
         resp = self.client.post(reverse("my_advisor_messages"), {"body": "anyone?"})
         self.assertEqual(resp.status_code, status.HTTP_409_CONFLICT)
+
+
+class VoiceNoteTests(APITestCase):
+    def setUp(self):
+        self.advisor = User.objects.create_user(email="adv@example.com", role=User.Role.ADVISOR)
+        self.stranger = User.objects.create_user(email="x@example.com", role=User.Role.ADVISOR)
+        self.premium = User.objects.create_user(email="prem@example.com", tier=User.Tier.PREMIUM)
+        self.student = Student.objects.create(user=self.premium, assigned_advisor=self.advisor)
+
+    def _voice(self):
+        return SimpleUploadedFile("note.m4a", b"FAKE-AUDIO-BYTES", content_type="audio/m4a")
+
+    def test_student_sends_voice_note_and_advisor_plays_it(self):
+        self.client.force_authenticate(self.premium)
+        resp = self.client.post(
+            reverse("my_advisor_messages"),
+            {"audio": self._voice(), "audio_duration_seconds": 12},
+            format="multipart",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        self.assertIsNotNone(resp.data["audio_url"])
+        self.assertEqual(resp.data["audio_duration_seconds"], 12)
+        msg_id = resp.data["id"]
+
+        # Assigned advisor can stream it.
+        self.client.force_authenticate(self.advisor)
+        resp = self.client.get(reverse("advisor_message_audio", args=[msg_id]))
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(b"".join(resp.streaming_content), b"FAKE-AUDIO-BYTES")
+
+    def test_empty_message_rejected(self):
+        self.client.force_authenticate(self.premium)
+        resp = self.client.post(reverse("my_advisor_messages"), {})
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_outsider_cannot_stream_voice_note(self):
+        msg = post_message(
+            get_thread_for_student(self.student), self.premium, audio=self._voice()
+        )
+        self.client.force_authenticate(self.stranger)  # an advisor, but not theirs
+        resp = self.client.get(reverse("advisor_message_audio", args=[msg.id]))
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+        msg.audio.delete(save=False)
+
+
+class DeviceAndPushTests(APITestCase):
+    def setUp(self):
+        self.advisor = User.objects.create_user(email="adv@example.com", role=User.Role.ADVISOR)
+        self.premium = User.objects.create_user(email="prem@example.com", tier=User.Tier.PREMIUM)
+        self.student = Student.objects.create(user=self.premium, assigned_advisor=self.advisor)
+
+    def test_register_and_unregister_device(self):
+        from accounts.models import DeviceToken
+
+        self.client.force_authenticate(self.premium)
+        resp = self.client.post(
+            reverse("device_register"),
+            {"token": "ExponentPushToken[abc]", "platform": "android"},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(DeviceToken.objects.filter(user=self.premium).count(), 1)
+        # Idempotent re-register (same token) doesn't duplicate.
+        self.client.post(reverse("device_register"), {"token": "ExponentPushToken[abc]"})
+        self.assertEqual(DeviceToken.objects.filter(user=self.premium).count(), 1)
+
+        resp = self.client.delete(
+            reverse("device_register"), {"token": "ExponentPushToken[abc]"}, format="json"
+        )
+        self.assertEqual(resp.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(DeviceToken.objects.filter(user=self.premium).count(), 0)
+
+    def test_sending_a_message_pushes_to_the_recipient(self):
+        from unittest.mock import patch
+
+        from accounts.models import DeviceToken
+
+        # Advisor has a device registered; student sends -> advisor gets pushed.
+        DeviceToken.objects.create(user=self.advisor, token="ExponentPushToken[adv]")
+        self.client.force_authenticate(self.premium)
+        with patch("accounts.push.requests.post") as mock_post:
+            mock_post.return_value.json.return_value = {"data": [{"status": "ok"}]}
+            mock_post.return_value.raise_for_status.return_value = None
+            # on_commit hooks (the notify task) fire only when the txn commits.
+            with self.captureOnCommitCallbacks(execute=True):
+                resp = self.client.post(reverse("my_advisor_messages"), {"body": "help!"})
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(mock_post.call_count, 1)
+        sent = mock_post.call_args.kwargs["json"]
+        self.assertEqual(sent[0]["to"], "ExponentPushToken[adv]")
+        self.assertIn("help!", sent[0]["body"])
+
+    def test_no_devices_means_no_push_call(self):
+        from unittest.mock import patch
+
+        self.client.force_authenticate(self.premium)  # advisor has no device
+        with patch("accounts.push.requests.post") as mock_post:
+            with self.captureOnCommitCallbacks(execute=True):
+                self.client.post(reverse("my_advisor_messages"), {"body": "hi"})
+        mock_post.assert_not_called()

@@ -6,7 +6,13 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from .serializers import RegisterSerializer, RequestOTPSerializer, VerifyOTPSerializer
+from .models import DeviceToken
+from .serializers import (
+    DeviceTokenSerializer,
+    RegisterSerializer,
+    RequestOTPSerializer,
+    VerifyOTPSerializer,
+)
 from .services import issue_and_send_otp, verify_otp
 from .throttling import OTPEmailRateThrottle
 
@@ -93,4 +99,35 @@ class LogoutView(APIView):
             RefreshToken(token).blacklist()
         except TokenError:
             pass  # already expired/blacklisted — logout is idempotent
+        # Drop this device's push token on logout so a signed-out phone stops
+        # receiving notifications.
+        device = request.data.get("device_token")
+        if device:
+            DeviceToken.objects.filter(user=request.user, token=device).delete()
         return Response(status=status.HTTP_205_RESET_CONTENT)
+
+
+class DeviceRegisterView(APIView):
+    """Register (POST) or remove (DELETE) this device's Expo push token.
+
+    A token is globally unique and always re-homed to the current user, so a
+    shared phone doesn't leak notifications to a previous account.
+    """
+
+    def post(self, request):
+        serializer = DeviceTokenSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        DeviceToken.objects.update_or_create(
+            token=serializer.validated_data["token"],
+            defaults={
+                "user": request.user,
+                "platform": serializer.validated_data.get("platform", ""),
+            },
+        )
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    def delete(self, request):
+        token = request.data.get("token")
+        if token:
+            DeviceToken.objects.filter(user=request.user, token=token).delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)

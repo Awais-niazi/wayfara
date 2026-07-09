@@ -7,18 +7,50 @@ from .models import AdvisorMessage
 
 class AdvisorMessageSerializer(serializers.ModelSerializer):
     mine = serializers.SerializerMethodField()
+    audio_url = serializers.SerializerMethodField()
 
     class Meta:
         model = AdvisorMessage
-        fields = ["id", "body", "created_at", "read_at", "mine"]
+        fields = [
+            "id", "body", "audio_url", "audio_duration_seconds",
+            "created_at", "read_at", "mine",
+        ]
 
     def get_mine(self, obj):
         request = self.context.get("request")
         return bool(request and obj.sender_id == request.user.id)
 
+    def get_audio_url(self, obj):
+        if not obj.audio:
+            return None
+        from django.urls import reverse
+
+        request = self.context.get("request")
+        url = reverse("advisor_message_audio", args=[obj.pk])
+        return request.build_absolute_uri(url) if request else url
+
+
+MAX_AUDIO_BYTES = 10 * 1024 * 1024  # 10 MB — a voice note, not a podcast
+
 
 class SendMessageSerializer(serializers.Serializer):
-    body = serializers.CharField(max_length=5000, trim_whitespace=True)
+    body = serializers.CharField(
+        max_length=5000, required=False, allow_blank=True, trim_whitespace=True
+    )
+    audio = serializers.FileField(required=False)
+    audio_duration_seconds = serializers.IntegerField(
+        required=False, min_value=0, max_value=600
+    )
+
+    def validate_audio(self, value):
+        if value.size > MAX_AUDIO_BYTES:
+            raise serializers.ValidationError("Voice note is too large (max 10 MB).")
+        return value
+
+    def validate(self, data):
+        if not data.get("body") and not data.get("audio"):
+            raise serializers.ValidationError("Send a message or a voice note.")
+        return data
 
 
 class ActivateSerializer(serializers.Serializer):

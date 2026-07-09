@@ -7,6 +7,7 @@ from rest_framework.views import APIView
 from accounts.permissions import HasAdvisorAccess, IsAdvisor
 from students.models import Document, Student
 
+from .models import AdvisorMessage
 from .serializers import (
     ActivateSerializer,
     AdvisorMessageSerializer,
@@ -20,6 +21,18 @@ from .services import (
     mark_read_by,
     post_message,
 )
+
+
+def _send_from(serializer, thread, sender, request):
+    """Create a message (text and/or voice) and return the serialized result."""
+    message = post_message(
+        thread,
+        sender,
+        body=serializer.validated_data.get("body", ""),
+        audio=serializer.validated_data.get("audio"),
+        audio_duration=serializer.validated_data.get("audio_duration_seconds"),
+    )
+    return AdvisorMessageSerializer(message, context={"request": request}).data
 
 
 class ActivateView(APIView):
@@ -144,9 +157,8 @@ class MyAdvisorMessagesView(APIView):
             )
         serializer = SendMessageSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        message = post_message(thread, request.user, serializer.validated_data["body"])
         return Response(
-            AdvisorMessageSerializer(message, context={"request": request}).data,
+            _send_from(serializer, thread, request.user, request),
             status=status.HTTP_201_CREATED,
         )
 
@@ -178,8 +190,29 @@ class StudentMessagesView(APIView):
         thread = get_thread_for_student(student)
         serializer = SendMessageSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        message = post_message(thread, request.user, serializer.validated_data["body"])
         return Response(
-            AdvisorMessageSerializer(message, context={"request": request}).data,
+            _send_from(serializer, thread, request.user, request),
             status=status.HTTP_201_CREATED,
         )
+
+
+class MessageAudioView(APIView):
+    """Stream a voice note to either participant of its thread.
+
+    Same authorize-then-serve gate as documents: the requester must be the
+    thread's student or its assigned advisor. Swaps to a signed-URL redirect
+    when audio storage moves to S3/R2.
+    """
+
+    def get(self, request, pk):
+        message = (
+            AdvisorMessage.objects.select_related("thread__student")
+            .filter(pk=pk)
+            .first()
+        )
+        if message is None or not message.audio:
+            raise Http404
+        student = message.thread.student
+        if request.user.id not in (student.user_id, student.assigned_advisor_id):
+            raise Http404
+        return FileResponse(message.audio.open("rb"))

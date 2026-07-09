@@ -3,7 +3,7 @@ from django.contrib.auth.admin import UserAdmin
 
 from advisor.services import send_advisor_activation
 
-from .models import User
+from .models import DeviceToken, User
 
 
 @admin.register(User)
@@ -45,3 +45,10 @@ class WayfaraUserAdmin(UserAdmin):
     add_fieldsets = (
         (None, {"classes": ("wide",), "fields": ("email", "password1", "password2")}),
     )
+
+
+@admin.register(DeviceToken)
+class DeviceTokenAdmin(admin.ModelAdmin):
+    list_display = ["user", "platform", "created_at", "last_used_at"]
+    list_filter = ["platform"]
+    search_fields = ["user__email"]

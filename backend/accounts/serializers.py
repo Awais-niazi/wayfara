@@ -2,6 +2,8 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
 
+from .models import DeviceToken
+
 User = get_user_model()
 
 
@@ -23,3 +25,10 @@ class RequestOTPSerializer(serializers.Serializer):
 class VerifyOTPSerializer(serializers.Serializer):
     email = serializers.EmailField()
     code = serializers.CharField(min_length=6, max_length=6)
+
+
+class DeviceTokenSerializer(serializers.Serializer):
+    token = serializers.CharField(max_length=255)
+    platform = serializers.ChoiceField(
+        choices=DeviceToken.Platform.choices, required=False, allow_blank=True
+    )

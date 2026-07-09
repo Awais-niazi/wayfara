@@ -68,6 +68,29 @@ class User(AbstractUser):
         return self.email
 
 
+class DeviceToken(models.Model):
+    """An Expo push token for one of a user's devices.
+
+    Registered by the app after the user grants notification permission;
+    pruned when Expo reports the token is no longer valid.
+    """
+
+    class Platform(models.TextChoices):
+        IOS = "ios", "iOS"
+        ANDROID = "android", "Android"
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="device_tokens"
+    )
+    token = models.CharField(max_length=255, unique=True)
+    platform = models.CharField(max_length=10, choices=Platform.choices, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_used_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.user} · {self.platform or 'device'}"
+
+
 class EmailOTP(models.Model):
     """One-time 6-digit code for passwordless onboarding/login.
 

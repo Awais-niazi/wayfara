@@ -38,7 +38,10 @@ class AdvisorMessage(models.Model):
     sender = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name="+"
     )
-    body = models.TextField()
+    # A message is text, a voice note, or both — body may be blank if audio is set.
+    body = models.TextField(blank=True)
+    audio = models.FileField(upload_to="advisor_audio/%Y/%m/", null=True, blank=True)
+    audio_duration_seconds = models.PositiveSmallIntegerField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     # Null until the *other* participant has seen it — drives unread counts.
     read_at = models.DateTimeField(null=True, blank=True)
@@ -48,4 +51,4 @@ class AdvisorMessage(models.Model):
         indexes = [models.Index(fields=["thread", "created_at"])]
 
     def __str__(self):
-        return f"{self.sender}: {self.body[:50]}"
+        return f"{self.sender}: {self.body[:50] or '[voice note]'}"
