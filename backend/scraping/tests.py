@@ -1,7 +1,8 @@
-from datetime import date
+from datetime import date, timedelta
 
 from django.core import mail
 from django.test import TestCase
+from django.utils import timezone
 
 from applications.models import PolicyFigure
 from universities.models import Program, University
@@ -9,7 +10,7 @@ from universities.models import Program, University
 from . import scrapers
 from .models import DataChange, ScrapeRun, ScrapeSource
 from .scrapers import BaseScraper, ScrapedRecord, register
-from .services import run_source
+from .services import fail_stale_runs, run_source
 
 
 def make_program(**overrides):
@@ -121,6 +122,22 @@ class ReconcileTests(TestCase):
         run = ScrapeRun.objects.get()
         self.assertEqual(run.status, "failed")
         self.assertIn("layout changed", run.error)
+
+    def test_stale_running_run_marked_failed_by_janitor(self):
+        src = self._source("fake_prog")
+        stale = ScrapeRun.objects.create(source=src)
+        ScrapeRun.objects.filter(pk=stale.pk).update(
+            started_at=timezone.now() - timedelta(hours=2)
+        )
+        fresh = ScrapeRun.objects.create(source=src)  # in-flight, must survive
+
+        self.assertEqual(fail_stale_runs(), 1)
+        stale.refresh_from_db()
+        fresh.refresh_from_db()
+        self.assertEqual(stale.status, "failed")
+        self.assertIn("janitor", stale.error)
+        self.assertIsNotNone(stale.finished_at)
+        self.assertEqual(fresh.status, "running")
 
     def test_unknown_field_defaults_to_critical(self):
         make_program()

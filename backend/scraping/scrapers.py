@@ -12,6 +12,8 @@ whose scraper_key matches a @register name.
 """
 
 import logging
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field as dc_field
 
 import requests
@@ -44,13 +46,24 @@ class BaseScraper:
     timeout = 20
     user_agent = "WayfaraBot/1.0 (+https://wayfara.app; student guidance)"
 
+    # One requests.Session per thread: keep-alive/pooling cuts a fresh TLS
+    # handshake per request (a run makes hundreds), and Session isn't
+    # thread-safe so enrichment worker threads can't share one.
+    _tls = threading.local()
+
     def __init__(self, source):
         self.source = source
 
+    def _session(self):
+        session = getattr(self._tls, "session", None)
+        if session is None:
+            session = requests.Session()
+            session.headers["User-Agent"] = self.user_agent
+            self._tls.session = session
+        return session
+
     def get(self, url):
-        resp = requests.get(
-            url, timeout=self.timeout, headers={"User-Agent": self.user_agent}
-        )
+        resp = self._session().get(url, timeout=self.timeout)
         resp.raise_for_status()
         return resp.text
 
@@ -104,15 +117,12 @@ class OpintopolkuScraper(BaseScraper):
     """
 
     page_size = 50
+    # Enrichment is pure HTTP + parsing (no ORM), so it fans out over threads;
+    # konfo handles this politely and it turns ~10 min of serial fetches into ~1.
+    enrich_workers = 8
 
     def _get_json(self, path):
-        import requests
-
-        resp = requests.get(
-            f"{KONFO_BASE}{path}",
-            headers={"User-Agent": self.user_agent},
-            timeout=self.timeout,
-        )
+        resp = self._session().get(f"{KONFO_BASE}{path}", timeout=self.timeout)
         resp.raise_for_status()
         return resp.json()
 
@@ -128,10 +138,16 @@ class OpintopolkuScraper(BaseScraper):
     def fetch_toteutus(self, oid):
         return self._get_json(f"/toteutus/{oid}")
 
-    def _resolve_university(self, name_en, koulutustyyppi):
+    def _resolve_university(self, name_en, koulutustyyppi, cache):
+        """DB lookup/create for a provider, memoized per run — 33 universities
+        back ~300 programmes, so this collapses hundreds of queries into a few.
+        """
         from universities.models import University
 
         canonical = _UNI_ALIASES.get(_normalize(name_en), name_en)
+        key = _normalize(canonical)
+        if key in cache:
+            return cache[key]
         uni = University.objects.filter(name__iexact=canonical).first()
         if uni is None:
             kind = (
@@ -140,6 +156,7 @@ class OpintopolkuScraper(BaseScraper):
                 else University.InstitutionType.UNIVERSITY
             )
             uni = University.objects.create(name=canonical, institution_type=kind, is_active=True)
+        cache[key] = uni
         return uni
 
     @staticmethod
@@ -155,19 +172,21 @@ class OpintopolkuScraper(BaseScraper):
             return Program.DegreeLevel.BACHELORS
         return Program.DegreeLevel.MASTERS
 
-    def _enrich(self, koulutus_oid, university):
-        """Fetch toteutus detail and extract tuition, deadline, start, campus.
+    def _enrich(self, koulutus_oid):
+        """Fetch toteutus detail and extract tuition, deadline, start, campus name.
 
-        Returns a dict of Program fields (+ a resolved Campus). Any part that
-        can't be read is simply omitted — partial data is fine, never fabricated.
-        Never raises: enrichment failure must not lose the catalogue record.
+        Pure HTTP + parsing — no ORM — so it is safe to run on worker threads
+        (the campus row is resolved on the main thread from the returned name).
+        Any part that can't be read is simply omitted — partial data is fine,
+        never fabricated. Never raises: enrichment failure must not lose the
+        catalogue record.
         """
         from datetime import date
 
-        from universities.models import Campus, Program
+        from universities.models import Program
 
         out = {}
-        campus = None
+        campus_name = None
         try:
             detail = self.fetch_koulutus(koulutus_oid)
             toteutukset = detail.get("toteutukset") or []
@@ -196,13 +215,10 @@ class OpintopolkuScraper(BaseScraper):
                         out["intake"] = Program.Intake.JANUARY
                         out["start_date"] = date(int(year), 1, 8).isoformat()
                 for hk in ht.get("hakukohteet", []):
-                    if campus is None:
+                    if campus_name is None:
                         cname = ((hk.get("jarjestyspaikka") or {}).get("nimi") or {}).get("en")
                         if cname:
-                            campus, _ = Campus.objects.get_or_create(
-                                university=university, name=cname[:200],
-                                defaults={"city": cname.split(",")[-1].strip()[:100]},
-                            )
+                            campus_name = cname
                     for ha in hk.get("hakuajat", []):
                         if ha.get("paattyy"):
                             deadlines.append(ha["paattyy"][:10])
@@ -214,14 +230,23 @@ class OpintopolkuScraper(BaseScraper):
                 out["application_opens"] = min(opens)
         except Exception:  # noqa: BLE001 — never lose the catalogue row over enrichment
             logger.warning("Enrichment failed for koulutus %s", koulutus_oid, exc_info=True)
-        return out, campus
+        return out, campus_name
 
-    def scrape(self):
-        """Yield one ScrapedRecord per programme (generator, so the caller can
-        commit incrementally over a long run)."""
-        from universities.models import Program
+    def _resolve_campus(self, university, campus_name, cache):
+        """Main-thread Campus get_or_create, memoized per run."""
+        from universities.models import Campus
 
-        seen = set()
+        key = (university.pk, campus_name)
+        if key not in cache:
+            cache[key], _ = Campus.objects.get_or_create(
+                university=university, name=campus_name[:200],
+                defaults={"city": campus_name.split(",")[-1].strip()[:100]},
+            )
+        return cache[key]
+
+    def _gather_hits(self):
+        """Run the keyword searches and return the deduped, validated hits."""
+        hits, seen = [], set()
         for keyword, field_of_study in KONFO_SEARCHES:
             data = self.fetch_search(keyword)
             for hit in data.get("hits", []):
@@ -234,8 +259,27 @@ class OpintopolkuScraper(BaseScraper):
                 if not name or not provider:
                     continue
                 seen.add(oid)
+                hits.append((oid, kind, name, provider, field_of_study, hit))
+        return hits
 
-                uni = self._resolve_university(provider, kind)
+    def scrape(self):
+        """Yield one ScrapedRecord per programme (generator, so the caller can
+        commit incrementally over a long run).
+
+        Two phases: gather all search hits (9 requests, sequential), then fan
+        the per-programme detail enrichment out over a thread pool while this
+        thread reconciles results. map() preserves hit order, so yields — and
+        therefore commits — stay deterministic run to run.
+        """
+        from universities.models import Program
+
+        hits = self._gather_hits()
+        uni_cache, campus_cache = {}, {}
+
+        with ThreadPoolExecutor(max_workers=self.enrich_workers) as pool:
+            enrichments = pool.map(lambda h: self._enrich(h[0]), hits)
+            for (oid, kind, name, provider, field_of_study, hit), (enriched, campus_name) in zip(hits, enrichments):
+                uni = self._resolve_university(provider, kind, uni_cache)
                 ects = hit.get("opintojenLaajuusNumero")
                 fields = {
                     "name": name[:200],
@@ -247,12 +291,10 @@ class OpintopolkuScraper(BaseScraper):
                     "external_source": "opintopolku",
                     "duration_years": 3 if (ects or 0) >= 180 else 2,
                 }
-                # Enrich with tuition / deadline / start / campus from detail.
-                enriched, campus = self._enrich(oid, uni)
                 fields.update(enriched)
                 related = {"university": uni}
-                if campus is not None:
-                    related["campus"] = campus
+                if campus_name:
+                    related["campus"] = self._resolve_campus(uni, campus_name, campus_cache)
 
                 yield ScrapedRecord(
                     model="universities.Program",

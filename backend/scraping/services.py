@@ -4,6 +4,7 @@ All business logic lives here; Celery tasks (tasks.py) are thin invokers.
 """
 
 import logging
+from datetime import timedelta
 
 from django.apps import apps
 from django.conf import settings
@@ -17,6 +18,24 @@ from .risk import risk_for
 from .scrapers import SCRAPER_REGISTRY
 
 logger = logging.getLogger(__name__)
+
+# A run still RUNNING this long after starting outlived the Celery hard cap
+# (30 min in tasks.py) — the worker died or the task was killed before
+# run.finish(). Mark it failed so the audit trail can't show phantom runs.
+STALE_RUN_AFTER = timedelta(minutes=35)
+
+
+def fail_stale_runs():
+    """Mark abandoned RUNNING runs as failed. Returns how many were closed."""
+    cutoff = timezone.now() - STALE_RUN_AFTER
+    return ScrapeRun.objects.filter(
+        status=ScrapeRun.Status.RUNNING, started_at__lt=cutoff
+    ).update(
+        status=ScrapeRun.Status.FAILED,
+        error="Marked failed by janitor: still 'running' past the task time limit "
+              "(worker died or task was killed).",
+        finished_at=timezone.now(),
+    )
 
 
 def _is_same(field, old_value, new_value):
@@ -100,8 +119,9 @@ def _process_record(run, record):
 
 def run_source(source_id):
     """Execute one source's scraper, reconcile, and audit. Isolated: an error
-    here fails only this source's run, never the whole nightly sweep.
+    here fails only this source's run, never the whole scheduled sweep.
     """
+    fail_stale_runs()
     source = ScrapeSource.objects.get(pk=source_id)
     run = ScrapeRun.objects.create(source=source)
     try:
@@ -150,7 +170,7 @@ def _alert_on_pending_critical(run):
     send_mail(
         subject=f"[Wayfara] {count} critical data change(s) need review — {run.source.name}",
         message=(
-            f"The nightly scraper for {run.source.name} found {count} critical "
+            f"The scraper for {run.source.name} found {count} critical "
             "change(s) awaiting your approval before they go live:\n\n"
             + "\n".join(lines)
             + "\n\nReview them in the admin under Scraping › Data changes."

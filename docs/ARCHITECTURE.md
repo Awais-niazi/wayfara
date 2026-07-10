@@ -84,7 +84,7 @@ Postgres cluster is `16/finnguide`); the database inside it is `wayfara`.
                                           │  Celery workers + Beat        │
                                           │  (Redis broker, db index 5)   │
                                           │  matching · timeline ·        │
-                                          │  reminders · nightly scraper  │
+                                          │  reminders · monthly scraper  │
                                           └───────────────────────────────┘
 ```
 
@@ -168,7 +168,7 @@ across working sessions.
   code treats "has a `Student` profile" and "has a password" as distinct signals.
 
 ### 3.6 Background work on Celery + Redis; tasks are thin invokers
-- **Why.** Matching, timeline generation, reminders, and the nightly scraper must
+- **Why.** Matching, timeline generation, reminders, and the monthly scraper must
   not block requests. Celery + Redis is the boring, scalable default (chosen over
   an initial django-q2 pick — migrated early rather than at scale).
 - **Firm rule.** **Celery tasks contain no business logic** — they are thin
@@ -178,18 +178,30 @@ across working sessions.
 - **How.** Redis is shared with another local system, so Wayfara uses **db index
   5** (`redis://localhost:6379/5`). Dev/tests run `CELERY_TASK_ALWAYS_EAGER=true`
   (inline, no broker); production runs real workers + Beat for scheduling.
+- **Role boundary (firm).** Redis is **transport and cache** — the Celery broker
+  (db 5), the version-keyed catalog cache and throttle counters (db 6). Postgres
+  holds **anything that must survive, be audited, or be human-reviewed** — which
+  is why scraped diffs stage in the `DataChange` table, not a Redis queue: staged
+  critical changes can wait days for admin review, and a queue's durability and
+  queryability are wrong for that. (Considered and rejected July 2026.)
 
-### 3.7 Data pipeline: nightly scraper with a tiered update policy
+### 3.7 Data pipeline: monthly scraper with a tiered update policy
 - **Why.** University/visa facts drift (deadlines, tuition, Migri figures). A
-  2 AM (Europe/Helsinki) Celery Beat scraper keeps them fresh, but blindly
-  auto-applying scraped changes to critical fields is dangerous.
+  Celery Beat scraper (**02:00 Europe/Helsinki on the 1st of each month** — the
+  catalogue changes on academic-cycle cadence, not nightly, and monthly keeps
+  our konfo load polite) keeps them fresh, but blindly auto-applying scraped
+  changes to critical fields is dangerous.
 - **How.** Detected changes follow a **tiered policy**: low-risk fields
   auto-apply; critical fields (deadlines, tuition, Migri figures) land in a
-  **review queue** in Django admin with an email alert. The live **Opintopolku
-  ingester** pulls Finland's national English-taught programme catalogue
-  (konfo-backend JSON) idempotently via a stable `oid`.
+  **review queue** in Django admin with an email alert. First-time population of
+  an *empty* field auto-applies even when critical — the gate is on **changing**
+  a value a student may already rely on. The live **Opintopolku ingester** pulls
+  Finland's national English-taught programme catalogue (konfo-backend JSON)
+  idempotently via a stable `oid`.
 - **Trade-off.** Human review adds latency to critical updates — deliberately, to
-  avoid publishing a wrong tuition figure to every user.
+  avoid publishing a wrong tuition figure to every user. Monthly cadence means a
+  mid-cycle deadline change can lag up to a month; the mitigation is a manual
+  `run_scraper_task` (or admin edit) when a change is known.
 
 ### 3.8 Knowledge-base vs AI-layer data split
 - The **scraper owns operational facts** (programmes, ECTS, deadlines where
@@ -273,6 +285,26 @@ to iterate and unit-test.
 policy). The Opintopolku ingester is the live source; the Migri figures scraper
 is a stub pending selectors. Tuition/deadlines that sit deep in inconsistent
 sources stay **admin-managed baselines** rather than being auto-scraped.
+
+**Run mechanics** (July 2026 optimization pass):
+- **Two-phase scrape.** Phase 1 gathers all search hits (9 keyword queries);
+  phase 2 fans the per-programme detail enrichment (2 HTTP calls each) out over
+  a **thread pool** (`enrich_workers = 8`). Enrichment is deliberately **pure
+  HTTP + parsing** — all ORM work (university/campus resolution, memoized per
+  run; diffing; commits) stays on the main thread, so no per-thread DB
+  connections exist. `map()` preserves hit order, keeping commits deterministic.
+  Measured: 285 programmes reconcile in ~37s against live konfo.
+- **Connection pooling.** One `requests.Session` per thread (keep-alive) instead
+  of a fresh TLS handshake per request.
+- **Incremental commits.** Each record commits in its own short transaction — a
+  long ingest keeps its progress if it dies, and DB locks stay brief.
+- **Stale-run janitor.** `fail_stale_runs()` runs before each scrape and marks
+  runs stuck in RUNNING past the 30-min Celery hard cap as FAILED, so a killed
+  worker can't leave phantom "running" audit rows.
+- **Cache coherence.** Any ORM write to a catalog model (scraper create, applied
+  `DataChange`, admin edit) fires the `universities/signals.py` post-save hook,
+  which bumps the version key the cached catalog API is keyed on — approved
+  changes are visible to users immediately, no TTL wait.
 
 ### 4.5 Auth, sessions & roles
 - **JWT (SimpleJWT):** 60-min access, 30-day refresh, **rotation on** with
