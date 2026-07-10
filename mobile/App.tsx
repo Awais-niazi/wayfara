@@ -25,6 +25,9 @@ import LoginScreen from "./screens/LoginScreen";
 import VerifyOtpScreen from "./screens/VerifyOtpScreen";
 import CreatePasswordScreen from "./screens/CreatePasswordScreen";
 import HomeScreen from "./screens/HomeScreen";
+import MatchDetailScreen from "./screens/MatchDetailScreen";
+import MatchesScreen from "./screens/MatchesScreen";
+import ProfileScreen from "./screens/ProfileScreen";
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -44,7 +47,12 @@ function RootNavigator() {
       }}
     >
       {status === "signedIn" ? (
-        <Stack.Screen name="Home" component={HomeScreen} />
+        <>
+          <Stack.Screen name="Home" component={HomeScreen} />
+          <Stack.Screen name="MatchDetail" component={MatchDetailScreen} />
+          <Stack.Screen name="Matches" component={MatchesScreen} />
+          <Stack.Screen name="Profile" component={ProfileScreen} />
+        </>
       ) : status === "needsPassword" ? (
         // Onboarding step 3: email verified, password pending. Its own stack
         // so neither the form nor the dashboard is reachable around it.

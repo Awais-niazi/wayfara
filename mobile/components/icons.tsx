@@ -45,6 +45,24 @@ export function ChevronRightIcon({ size = 20, color = "#B4841A", strokeWidth = 2
   );
 }
 
+export function GlobeIcon({ size = 18, color = "#4A3D31", strokeWidth = 1.9 }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <Circle cx="12" cy="12" r="9" {...stroke(color, strokeWidth)} />
+      <Path d="M3 12 H21" {...stroke(color, strokeWidth)} />
+      <Path d="M12 3 C15 6 15 18 12 21 C9 18 9 6 12 3 Z" {...stroke(color, strokeWidth)} />
+    </Svg>
+  );
+}
+
+export function CheckIcon({ size = 14, color = "#1F8A5B", strokeWidth = 2.4 }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <Path d="M5 12.5 L10 17.5 L19 7" {...stroke(color, strokeWidth)} />
+    </Svg>
+  );
+}
+
 export function AppleIcon({ size = 17, color = "#fff" }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">

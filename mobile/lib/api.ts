@@ -85,6 +85,7 @@ export interface Match {
   program_name: string;
   degree_level: string;
   university: string;
+  university_id: number;
   city: string;
   campus: string | null;
   tuition_fee_eur: string | null; // DRF DecimalField serializes as string
@@ -96,6 +97,39 @@ export interface Match {
   fit: "safety" | "good_fit" | "reach";
   score: string; // 0–100, decimal string
   created_at: string;
+}
+
+export interface CatalogProgram {
+  id: number;
+  name: string;
+  degree_level: string;
+  field_of_study: string;
+  language: string;
+  duration_years: string | null;
+  tuition_fee_eur: string | null;
+  scholarship_available: boolean;
+  intake: string;
+  application_deadline: string | null; // ISO date
+  min_ielts_score: string | null;
+  campus: string | null;
+}
+
+export interface UniversityDetail {
+  id: number;
+  name: string;
+  institution_type: string;
+  city: string;
+  logo_url: string;
+  website: string;
+  description: string;
+  world_ranking: number | null;
+  ranking_system: string;
+  ranking_year: number | null;
+  featured: boolean;
+  data_verified: boolean;
+  /** Curated editorial overview; empty until human-reviewed. */
+  overview: string;
+  programs: CatalogProgram[];
 }
 
 export type TaskStatus = "pending" | "completed" | "skipped";
@@ -127,6 +161,23 @@ export class ApiError extends Error {
     this.status = status;
     this.body = body;
   }
+}
+
+/** Human-readable message from an API failure — surfaces the first DRF
+ *  validation error ({ field: ["msg"] }), with a friendly network fallback. */
+export function firstErrorMessage(err: unknown): string {
+  if (err instanceof ApiError && typeof err.body === "object" && err.body !== null) {
+    for (const [field, msgs] of Object.entries(err.body as Record<string, unknown>)) {
+      const msg = Array.isArray(msgs) ? msgs[0] : msgs;
+      if (typeof msg === "string") {
+        return field === "detail" || field === "non_field_errors" ? msg : `${field}: ${msg}`;
+      }
+    }
+  }
+  if (err instanceof Error && err.message === "Network request failed") {
+    return "Can't reach the server. Is the backend running?";
+  }
+  return err instanceof Error ? err.message : "Something went wrong.";
 }
 
 // ─── Core request machinery ──────────────────────────────────────────────────
@@ -248,6 +299,23 @@ export function updateProfile(patch: Partial<Profile>) {
 /** University recommendations, best fit first. */
 export function getMatches() {
   return request<Match[]>("/api/matches/");
+}
+
+/** AI-curated highlight: at most 2-3 matches the AI layer singled out, each
+ *  with a one-line reason. The endpoint is the free AI-layer task — until it
+ *  ships, this 404s and Home hides the showcase box. */
+export interface AiMatch extends Match {
+  /** Why the AI picked this university for this student. */
+  reason?: string;
+}
+
+export function getAiMatches() {
+  return request<AiMatch[]>("/api/matches/ai/");
+}
+
+/** One university with curated KB fields + its active programmes (public, cached). */
+export function getUniversity(id: number) {
+  return request<UniversityDetail>(`/api/universities/${id}/`, {}, { auth: false });
 }
 
 /** The journey plan; optionally scoped to one phase. */

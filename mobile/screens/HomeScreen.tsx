@@ -15,9 +15,13 @@ import {
   ScrollView,
   Pressable,
   ActivityIndicator,
+  RefreshControl,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { SafeAreaView } from "react-native-safe-area-context";
+import type { NativeStackScreenProps } from "@react-navigation/native-stack";
+
+import type { RootStackParamList } from "../navigation/types";
 
 import { colors, fonts, radius } from "../theme";
 import {
@@ -34,8 +38,16 @@ import {
   ChatIcon,
   ProfileIcon,
 } from "../components/icons";
-import { getMatches, getProfile, getTasks, type Match, type Profile, type Task } from "../lib/api";
-import { useAuth } from "../context/AuthContext";
+import {
+  getAiMatches,
+  getMatches,
+  getProfile,
+  getTasks,
+  type AiMatch,
+  type Match,
+  type Profile,
+  type Task,
+} from "../lib/api";
 
 // Rotating visual identity for match cards (avatar + hero tint).
 const CARD_COLORS = [
@@ -55,13 +67,14 @@ const QUICK_ACTIONS: QuickAction[] = [
   { key: "advisor", title: "Advisor", sub: "AI + human", bg: "#F3ECFB", icon: <SparkleIcon color="#7B4FD6" /> },
 ];
 
+// Tabs without a target yet (Apps, Chat) render disabled rather than dead.
 const TABS = [
-  { key: "home", label: "Home", Icon: HomeIcon, active: true },
-  { key: "explore", label: "Explore", Icon: CompassIcon, active: false },
-  { key: "apps", label: "Apps", Icon: AppsIcon, active: false },
-  { key: "chat", label: "Chat", Icon: ChatIcon, active: false },
-  { key: "profile", label: "Profile", Icon: ProfileIcon, active: false },
-];
+  { key: "home", label: "Home", Icon: HomeIcon, active: true, target: null },
+  { key: "explore", label: "Explore", Icon: CompassIcon, active: false, target: "matches" },
+  { key: "apps", label: "Apps", Icon: AppsIcon, active: false, target: null },
+  { key: "chat", label: "Chat", Icon: ChatIcon, active: false, target: null },
+  { key: "profile", label: "Profile", Icon: ProfileIcon, active: false, target: "profile" },
+] as const;
 
 const euro = (v: string | null) =>
   v === null ? "—" : `€${Math.round(parseFloat(v)).toLocaleString("en-US")}`;
@@ -78,11 +91,16 @@ function greetingForNow(): string {
   return "Good evening";
 }
 
-function UniCard({ match, index }: { match: Match; index: number }) {
+function UniCard({ match, index, onPress }: { match: Match; index: number; onPress: () => void }) {
   const c = CARD_COLORS[index % CARD_COLORS.length];
   const pct = Math.round(parseFloat(match.score));
   return (
-    <View style={styles.uniCard}>
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`${match.university}, ${pct}% match. View programme details`}
+      style={({ pressed }) => [styles.uniCard, pressed && { opacity: 0.85 }]}
+    >
       <View style={[styles.uniHero, { backgroundColor: c.hero }]}>
         <Text style={styles.uniHeroText}>campus</Text>
         <View style={styles.matchBadge}>
@@ -107,36 +125,51 @@ function UniCard({ match, index }: { match: Match; index: number }) {
             <Text style={styles.statValue}>{shortDate(match.application_deadline)}</Text>
           </View>
         </View>
-        <Pressable style={styles.viewBtn}>
+        <View style={styles.viewBtn}>
           <Text style={styles.viewBtnText}>View program</Text>
-        </Pressable>
+        </View>
       </View>
-    </View>
+    </Pressable>
   );
 }
 
-export default function HomeScreen() {
-  const { signOut } = useAuth();
+type Props = NativeStackScreenProps<RootStackParamList, "Home">;
+
+export default function HomeScreen({ navigation }: Props) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [matches, setMatches] = useState<Match[]>([]);
+  const [aiMatches, setAiMatches] = useState<AiMatch[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  // One fetcher for first load and pull-to-refresh. On refresh a failure keeps
+  // the stale data on screen instead of swapping it for an error box.
+  const fetch = useCallback(async (mode: "initial" | "refresh") => {
+    mode === "initial" ? setLoading(true) : setRefreshing(true);
     try {
       const [p, m, t] = await Promise.all([getProfile(), getMatches(), getTasks()]);
       setProfile(p);
       setMatches(m);
       setTasks(t);
+      setError(null);
     } catch {
-      setError("Couldn't load your data. Check your connection and the server.");
+      if (mode === "initial") {
+        setError("Couldn't load your data. Check your connection and the server.");
+      }
     } finally {
-      setLoading(false);
+      mode === "initial" ? setLoading(false) : setRefreshing(false);
     }
+    // AI showcase is additive: never block or fail the dashboard for it.
+    // Until the AI-layer endpoint ships this 404s and the box stays hidden.
+    getAiMatches()
+      .then((ai) => setAiMatches(ai.slice(0, 3)))
+      .catch(() => {});
   }, []);
+
+  const load = useCallback(() => fetch("initial"), [fetch]);
+  const onRefresh = useCallback(() => fetch("refresh"), [fetch]);
 
   useEffect(() => {
     load();
@@ -184,7 +217,13 @@ export default function HomeScreen() {
 
   return (
     <View style={styles.root}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollBody}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scrollBody}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />
+        }
+      >
         <SafeAreaView edges={["top"]}>
           <View style={styles.pad}>
             {/* top bar */}
@@ -196,12 +235,19 @@ export default function HomeScreen() {
                 </Text>
               </View>
               <View style={styles.topActions}>
-                <Pressable style={styles.iconBtn}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Notifications"
+                  style={styles.iconBtn}
+                >
                   <BellIcon size={20} color="#4A3D31" />
                   <View style={styles.notifDot} />
                 </Pressable>
-                {/* Tap avatar to sign out (until the Profile tab exists). */}
-                <Pressable onPress={signOut}>
+                <Pressable
+                  onPress={() => navigation.navigate("Profile")}
+                  accessibilityRole="button"
+                  accessibilityLabel="Open your profile"
+                >
                   <LinearGradient colors={["#FFB43A", colors.accent]} style={styles.avatar}>
                     <Text style={styles.avatarText}>
                       {displayName.charAt(0).toUpperCase()}
@@ -225,12 +271,60 @@ export default function HomeScreen() {
               </Pressable>
             )}
 
+            {/* AI picks — the free AI-layer showcase, above the system matches */}
+            {!loading && !error && aiMatches.length > 0 && (
+              <View style={styles.aiCard}>
+                <View style={styles.aiHead}>
+                  <View style={styles.aiBadge}>
+                    <SparkleIcon size={16} color="#fff" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.aiTitle}>AI picks for you</Text>
+                    <Text style={styles.aiSub}>Hand-picked from your full profile</Text>
+                  </View>
+                </View>
+                {aiMatches.map((m, i) => (
+                  <Pressable
+                    key={m.id}
+                    onPress={() => navigation.navigate("MatchDetail", { match: m })}
+                    accessibilityRole="button"
+                    accessibilityLabel={`AI pick: ${m.university}. View details`}
+                    style={({ pressed }) => [
+                      styles.aiRow,
+                      i === aiMatches.length - 1 && { borderBottomWidth: 0 },
+                      pressed && { opacity: 0.7 },
+                    ]}
+                  >
+                    <View style={styles.aiRank}>
+                      <Text style={styles.aiRankText}>{i + 1}</Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.aiUni} numberOfLines={1}>{m.university}</Text>
+                      <Text style={styles.aiReason} numberOfLines={2}>
+                        {m.reason || `${m.program_name} · ${m.city}`}
+                      </Text>
+                    </View>
+                    <ChevronRightIcon size={16} color="#B9A5E8" />
+                  </Pressable>
+                ))}
+              </View>
+            )}
+
             {/* recommended header */}
             {!loading && !error && (
               <>
                 <View style={styles.sectionHead}>
                   <Text style={styles.sectionTitle}>Recommended for you</Text>
-                  <Text style={styles.seeAll}>See all</Text>
+                  {matches.length > 0 && (
+                    <Pressable
+                      onPress={() => navigation.navigate("Matches", { matches })}
+                      accessibilityRole="button"
+                      accessibilityLabel={`See all ${matches.length} matches`}
+                      hitSlop={10}
+                    >
+                      <Text style={styles.seeAll}>See all</Text>
+                    </Pressable>
+                  )}
                 </View>
                 <Text style={styles.sectionSub}>
                   {matches.length > 0
@@ -251,7 +345,12 @@ export default function HomeScreen() {
               contentContainerStyle={styles.uniRow}
             >
               {matches.slice(0, 10).map((m, i) => (
-                <UniCard key={m.id} match={m} index={i} />
+                <UniCard
+                  key={m.id}
+                  match={m}
+                  index={i}
+                  onPress={() => navigation.navigate("MatchDetail", { match: m })}
+                />
               ))}
             </ScrollView>
           )}
@@ -339,10 +438,27 @@ export default function HomeScreen() {
       {/* bottom tab bar */}
       <SafeAreaView edges={["bottom"]} style={styles.tabBarWrap}>
         <View style={styles.tabBar}>
-          {TABS.map(({ key, label, Icon, active }) => {
+          {TABS.map(({ key, label, Icon, active, target }) => {
+            const enabled = active || target !== null;
             const color = active ? colors.accent : "#A99B8D";
+            const onPress = () => {
+              if (target === "matches") navigation.navigate("Matches", { matches });
+              if (target === "profile") navigation.navigate("Profile");
+            };
             return (
-              <Pressable key={key} style={styles.tab}>
+              <Pressable
+                key={key}
+                onPress={target === null ? undefined : onPress}
+                disabled={!enabled}
+                accessibilityRole="button"
+                accessibilityLabel={label}
+                accessibilityState={{ selected: active, disabled: !enabled }}
+                style={({ pressed }) => [
+                  styles.tab,
+                  !enabled && { opacity: 0.45 },
+                  pressed && { opacity: 0.6 },
+                ]}
+              >
                 <Icon size={24} color={color} />
                 <Text
                   style={[
@@ -371,8 +487,8 @@ const styles = StyleSheet.create({
   greeting: { fontFamily: fonts.display, fontSize: 24, letterSpacing: -0.6, color: colors.ink, marginTop: 2 },
   topActions: { flexDirection: "row", alignItems: "center", gap: 10 },
   iconBtn: {
-    width: 42,
-    height: 42,
+    width: 44,
+    height: 44,
     borderRadius: 13,
     borderWidth: 1,
     borderColor: colors.border,
@@ -391,7 +507,7 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: "#fff",
   },
-  avatar: { width: 42, height: 42, borderRadius: 13, alignItems: "center", justifyContent: "center" },
+  avatar: { width: 44, height: 44, borderRadius: 13, alignItems: "center", justifyContent: "center" },
   avatarText: { fontFamily: fonts.display, fontSize: 16, color: "#fff" },
 
   loadingBox: { alignItems: "center", gap: 10, paddingVertical: 60 },
@@ -408,6 +524,49 @@ const styles = StyleSheet.create({
   },
   errorText: { fontFamily: fonts.bodySemi, fontSize: 13.5, color: "#B3402A", textAlign: "center" },
   errorRetry: { fontFamily: fonts.bodyBold, fontSize: 13, color: colors.accent },
+
+  aiCard: {
+    marginTop: 24,
+    backgroundColor: "#F6F1FC",
+    borderWidth: 1,
+    borderColor: "#E3D5F5",
+    borderRadius: radius["2xl"],
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 4,
+  },
+  aiHead: { flexDirection: "row", alignItems: "center", gap: 11, paddingBottom: 6 },
+  aiBadge: {
+    width: 34,
+    height: 34,
+    borderRadius: 11,
+    backgroundColor: "#7B4FD6",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  aiTitle: { fontFamily: fonts.display, fontSize: 15.5, color: colors.ink },
+  aiSub: { fontFamily: fonts.bodyRegular, fontSize: 11.5, color: "#8A76B0", marginTop: 1 },
+  aiRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 11,
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#E3D5F5",
+  },
+  aiRank: {
+    width: 26,
+    height: 26,
+    borderRadius: 9,
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: "#E3D5F5",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  aiRankText: { fontFamily: fonts.display, fontSize: 12.5, color: "#7B4FD6" },
+  aiUni: { fontFamily: fonts.bodyBold, fontSize: 13.5, color: colors.ink },
+  aiReason: { fontFamily: fonts.bodyRegular, fontSize: 11.5, color: colors.textFaint, marginTop: 1, lineHeight: 15 },
 
   sectionHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 26 },
   sectionTitle: { fontFamily: fonts.display, fontSize: 18, letterSpacing: -0.3, color: colors.ink },
@@ -531,6 +690,6 @@ const styles = StyleSheet.create({
     borderTopColor: "#EBDDCB",
   },
   tabBar: { flexDirection: "row", justifyContent: "space-around", alignItems: "flex-start", paddingTop: 11, paddingHorizontal: 8 },
-  tab: { alignItems: "center", gap: 4 },
+  tab: { alignItems: "center", gap: 4, minWidth: 56, paddingVertical: 2 },
   tabLabel: { fontSize: 10.5 },
 });

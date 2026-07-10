@@ -11,6 +11,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { colors, fonts, radius } from "../theme";
 import { Wordmark, PrimaryButton, GhostButton, Chip } from "../components/ui";
 import { PinIcon } from "../components/icons";
+import { HeroIllustration } from "../components/HeroIllustration";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
 
@@ -29,11 +30,9 @@ export default function WelcomeScreen({ navigation }: Props) {
         <View style={styles.container}>
           <Wordmark size={21} />
 
-          {/* hero image slot */}
+          {/* hero */}
           <View style={styles.hero}>
-            <View style={styles.heroPlaceholder}>
-              <Text style={styles.heroPlaceholderText}>CAMPUS / STUDENT PHOTO</Text>
-            </View>
+            <HeroIllustration />
             <View style={styles.locationPill}>
               <PinIcon size={12} color="#fff" />
               <Text style={styles.locationText}>Helsinki, Finland</Text>
@@ -86,21 +85,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.card,
     overflow: "hidden",
     backgroundColor: "#EDDCC9",
-  },
-  heroPlaceholder: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  heroPlaceholderText: {
-    fontFamily: fonts.bodySemi,
-    fontSize: 11,
-    letterSpacing: 1,
-    color: "#A6907A",
   },
   locationPill: {
     position: "absolute",

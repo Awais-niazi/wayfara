@@ -7,6 +7,7 @@ class MatchSerializer(serializers.ModelSerializer):
     program_name = serializers.CharField(source="program.name", read_only=True)
     degree_level = serializers.CharField(source="program.degree_level", read_only=True)
     university = serializers.CharField(source="program.university.name", read_only=True)
+    university_id = serializers.IntegerField(source="program.university_id", read_only=True)
     city = serializers.CharField(source="program.university.city", read_only=True)
     campus = serializers.CharField(source="program.campus.name", read_only=True, default=None)
     tuition_fee_eur = serializers.DecimalField(
@@ -31,6 +32,7 @@ class MatchSerializer(serializers.ModelSerializer):
             "program_name",
             "degree_level",
             "university",
+            "university_id",
             "city",
             "campus",
             "tuition_fee_eur",

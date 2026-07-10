@@ -19,70 +19,24 @@ import { PrimaryButton, Wordmark } from "../components/ui";
 import { Field, ChoiceRow, FormError } from "../components/form";
 import { ChevronLeftIcon } from "../components/icons";
 import {
-  ApiError,
+  firstErrorMessage,
   submitOnboarding,
   type Intake,
   type LanguageTestStatus,
   type Stage,
   type StudyLevel,
 } from "../lib/api";
+import {
+  EDUCATION_LEVELS,
+  FIELDS,
+  INTAKES,
+  INTAKE_YEARS,
+  STAGES,
+  TEST_STATUSES,
+} from "../lib/profileOptions";
 import type { RootStackParamList } from "../navigation/types";
 
 type Props = NativeStackScreenProps<RootStackParamList, "GetStarted">;
-
-// "Last completed education" drives study_level: the backend model encodes
-// exactly this pairing (UNDERGRADUATE = "Undergraduate (FSc/A-Levels)",
-// MASTERS = "Masters (Bachelor's degree)").
-const EDUCATION_LEVELS: { value: StudyLevel; label: string }[] = [
-  { value: "masters", label: "Bachelor's degree" },
-  { value: "undergraduate", label: "FSc / A-Levels" },
-];
-
-const TEST_STATUSES: { value: LanguageTestStatus; label: string }[] = [
-  { value: "not_taken", label: "Not taken yet" },
-  { value: "booked", label: "Test booked" },
-  { value: "taken", label: "Score available" },
-];
-
-const INTAKES: { value: Intake; label: string }[] = [
-  { value: "september", label: "September" },
-  { value: "january", label: "January" },
-];
-
-// Programme catalogue taxonomy (from the Opintopolku ingester) — matching
-// filters `field_of_study__icontains`, so these must align with the backend.
-const FIELDS = ["IT", "Business", "Design", "Engineering"].map((f) => ({
-  value: f,
-  label: f,
-}));
-
-// Years a student can realistically target for the chosen intake.
-const INTAKE_YEARS = (() => {
-  const y = new Date().getFullYear();
-  return [y, y + 1, y + 2].map((v) => ({ value: String(v), label: String(v) }));
-})();
-
-const STAGES: { value: Stage; label: string }[] = [
-  { value: "exploring", label: "Just exploring" },
-  { value: "ready", label: "Ready to apply" },
-  { value: "applied", label: "Already applied" },
-];
-
-function firstErrorMessage(err: unknown): string {
-  if (err instanceof ApiError && typeof err.body === "object" && err.body !== null) {
-    // DRF validation errors: { field: ["msg"] } — surface the first one.
-    for (const [field, msgs] of Object.entries(err.body as Record<string, unknown>)) {
-      const msg = Array.isArray(msgs) ? msgs[0] : msgs;
-      if (typeof msg === "string") {
-        return field === "detail" || field === "non_field_errors" ? msg : `${field}: ${msg}`;
-      }
-    }
-  }
-  if (err instanceof Error && err.message === "Network request failed") {
-    return "Can't reach the server. Is the backend running?";
-  }
-  return err instanceof Error ? err.message : "Something went wrong.";
-}
 
 export default function GetStartedScreen({ navigation }: Props) {
   const [email, setEmail] = useState("");
