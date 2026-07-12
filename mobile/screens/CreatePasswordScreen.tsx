@@ -64,11 +64,12 @@ export default function CreatePasswordScreen() {
 
         <View style={styles.fields}>
           <Field
-            label="Password (min. 8 characters)"
+            label="Password (8–20 characters)"
             value={password}
             onChangeText={setPasswordValue}
             placeholder="••••••••"
             secure
+            maxLength={20}
           />
           <Field
             label="Confirm password"
@@ -76,6 +77,7 @@ export default function CreatePasswordScreen() {
             onChangeText={setConfirm}
             placeholder="••••••••"
             secure
+            maxLength={20}
           />
           <FormError message={error} />
         </View>

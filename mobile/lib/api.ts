@@ -268,6 +268,13 @@ export function verifyOtp(email: string, code: string) {
   });
 }
 
+/** Password login for returning users who set one (onboarding step 3). */
+export function loginWithPassword(email: string, password: string) {
+  return request<Tokens>("/auth/token/", post({ email, password }), {
+    auth: false,
+  });
+}
+
 /** Rotate the refresh token; returns a new access AND refresh pair. */
 export function refreshTokens(refresh: string) {
   return request<Tokens>("/auth/token/refresh/", post({ refresh }), {

@@ -1,5 +1,6 @@
 from rest_framework import serializers
 
+from accounts.serializers import PASSWORD_MAX_LENGTH
 from students.models import Document, Student
 from wayfara.serializers import StrictModelSerializer, StrictSerializer
 
@@ -55,9 +56,13 @@ class SendMessageSerializer(StrictSerializer):
 
 
 class ActivateSerializer(StrictSerializer):
-    uid = serializers.CharField()
-    token = serializers.CharField()
-    password = serializers.CharField(write_only=True, min_length=8)
+    # uid is a base64 pk, token is Django's reset-token format — both are
+    # short; the caps just bound attacker-controlled input size.
+    uid = serializers.CharField(max_length=64)
+    token = serializers.CharField(max_length=128)
+    password = serializers.CharField(
+        write_only=True, min_length=8, max_length=PASSWORD_MAX_LENGTH
+    )
 
 
 class AdvisorStudentListSerializer(StrictModelSerializer):

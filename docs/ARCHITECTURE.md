@@ -377,6 +377,11 @@ sources stay **admin-managed baselines** rather than being auto-scraped.
   **blacklist after rotation** (`token_blacklist` app). The refresh endpoint
   returns a *new pair*; the app must persist both.
 - **Passwordless OTP** as the entry (3.4), password set post-verification.
+- **Two login paths for returning users.** Once a password is set (onboarding
+  step 3), `POST /auth/token/` (email + password) is the primary login; the app
+  falls back to `POST /auth/otp/request/` (email code) if they've forgotten it.
+  Password login is throttled `20/hour` per IP to blunt credential stuffing; the
+  password field is capped at **20 chars** (product decision — see 4.7).
 - **Roles.** `User.role` is `student` or `advisor`. `/api/v1/me/` is the session
   bootstrap — it returns `role`, `tier`, `email_verified`, `has_password`, and
   `onboarding_complete`, and the app routes on those (student dashboard vs
@@ -394,6 +399,7 @@ All under `/api/v1/` (3.12). Auth required unless marked **(anon)**.
 | `POST /onboarding/` **(anon)** | Get Started form → account + Student + background matching/timeline + OTP |
 | `POST /auth/otp/request/` **(anon)** | Send login/verification code (always 200; no enumeration) |
 | `POST /auth/otp/verify/` **(anon)** | email + code → JWT pair (verifies email; is the login) |
+| `POST /auth/token/` **(anon)** | email + password → JWT pair (returning users who set a password) |
 | `POST /auth/token/refresh/` **(anon)** | Rotate the refresh token → new pair |
 | `POST /auth/password/` | Set/replace the account password (onboarding step 3) |
 | `GET /me/` | Session bootstrap (role, tier, verified, has_password, onboarding_complete) |
@@ -416,14 +422,28 @@ All under `/api/v1/` (3.12). Auth required unless marked **(anon)**.
   `StudentOwnedManager`) so every query is scoped to the requesting user; advisor
   views are scoped to assigned students only.
 - **Rate limiting.** DRF scoped throttles per sensitive endpoint (onboarding,
-  otp_request, otp_verify, set_password, register, advisor_activate) plus a
-  per-target-inbox OTP cap that survives IP rotation. Relaxed automatically under
-  `TESTING`.
+  otp_request, otp_verify, password_login, set_password, register,
+  advisor_activate) plus a per-target-inbox OTP cap that survives IP rotation.
+  Relaxed automatically under `TESTING`.
+- **Input hardening (July 2026).** Every auth field is bounded and typed at the
+  serializer, so hostile input fails with a clean 400 before it reaches the ORM
+  or DB: email capped at RFC-5321's 254 chars, OTP code is `^\d{6}$`, passwords
+  are **8–20 chars** (product decision; a backwards-compatible cap since login
+  never length-checks). SQL injection was never reachable — the codebase has
+  **zero raw SQL** (`grep` for `.raw(`/`.extra(`/`cursor()` is empty; everything
+  is parameterized ORM) — so these caps are defense-in-depth, not the primary
+  control. The per-inbox OTP throttle also no longer 500s on a non-dict JSON
+  body (it now returns 400).
 - **Transport controls.** `CORS_ALLOWED_ORIGINS` and `ALLOWED_HOSTS` are
   env-driven (dev defaults to localhost). Native app traffic isn't subject to
   CORS; the web build is, so LAN/production origins must be whitelisted.
 - **Not yet set** (deploy-time, Layer 8): `SECURE_SSL_REDIRECT`, HSTS, secure
   cookie flags — these light up when a real host + TLS exist.
+- **Known follow-ups (not blocking, tracked in §8).** OTP codes are stored in
+  plaintext (short-lived, single-use, but a DB-read attacker could use an
+  unexpired one); `verify_otp`'s code comparison isn't constant-time; and
+  `DJANGO_SECRET_KEY` has an insecure dev fallback that **must** be set in
+  production.
 
 ---
 
@@ -577,6 +597,13 @@ Consolidated, so nothing hides in prose:
    verification against Migri's current numbers before Phase 4 content ships.
 7. **Payment layer not built.** `User.tier` is webhook-driven by design, but the
    `Payment` model + gateway integration land later (with merchant onboarding).
+8. **Auth hardening follow-ups (from the July 2026 scan).** Three items, none
+   blocking but all worth closing before real traffic: (a) OTP codes stored in
+   plaintext — hash them like passwords (they're short-lived + single-use, so
+   low but non-zero risk); (b) `verify_otp` compares codes with `!=`, not
+   `secrets.compare_digest` — a theoretical timing side-channel; (c)
+   `DJANGO_SECRET_KEY` has an insecure dev fallback — **must** be set in the
+   production environment or every JWT/signature is forgeable.
 
 ---
 

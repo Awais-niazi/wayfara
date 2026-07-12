@@ -13,6 +13,10 @@ class OTPEmailRateThrottle(SimpleRateThrottle):
     scope = "otp_email"
 
     def get_cache_key(self, request, view):
+        # request.data can be a list/str for malformed JSON bodies — .get()
+        # on those raised, turning garbage input into an unauthenticated 500.
+        if not isinstance(request.data, dict):
+            return None  # no key -> not throttled here; validation rejects it
         email = request.data.get("email")
         if not isinstance(email, str) or not email:
             return None  # no key -> not throttled here; validation handles it

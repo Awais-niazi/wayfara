@@ -5,6 +5,7 @@ from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.views import TokenObtainPairView
 
 from .models import DeviceToken
 from .serializers import (
@@ -27,6 +28,16 @@ class RegisterView(generics.CreateAPIView):
     permission_classes = [permissions.AllowAny]
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "register"
+
+
+class PasswordLoginView(TokenObtainPairView):
+    """email + password → JWT pair, for returning users who set a password
+    (onboarding step 3). OTP login remains the passwordless alternative.
+    Scoped throttle: credential stuffing shouldn't get the lax global rate.
+    """
+
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "password_login"
 
 
 class RequestOTPView(APIView):

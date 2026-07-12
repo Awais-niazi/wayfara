@@ -26,7 +26,7 @@ class TaskStatusSerializer(StrictSerializer):
 class OnboardingSerializer(StrictModelSerializer):
     """The Get Started form: email + profile in one anonymous submission."""
 
-    email = serializers.EmailField()
+    email = serializers.EmailField(max_length=254)
 
     class Meta:
         model = Student

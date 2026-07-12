@@ -177,3 +177,97 @@ class ThrottleTests(APITestCase):
         self.assertIn(resp.status_code, (status.HTTP_201_CREATED, status.HTTP_400_BAD_REQUEST))
         resp = self.client.post(url, {"email": "o2@example.com"})
         self.assertEqual(resp.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    @_rates(password_login="2/hour")
+    def test_password_login_throttled(self):
+        User.objects.create_user(email="pl@example.com", password="SafePass!2026")
+        url = reverse("token_obtain_pair")
+        for _ in range(2):
+            self.client.post(url, {"email": "pl@example.com", "password": "wrong"})
+        resp = self.client.post(url, {"email": "pl@example.com", "password": "SafePass!2026"})
+        self.assertEqual(resp.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+
+class InputHardeningTests(APITestCase):
+    """Malformed and hostile input must fail with a clean 4xx, never a 500,
+    and never touch data it shouldn't."""
+
+    SQLI = "a@example.com'; DROP TABLE accounts_user;--"
+
+    def test_non_dict_json_body_is_rejected_not_500(self):
+        # A JSON array used to crash OTPEmailRateThrottle before validation ran.
+        for payload in ("[1,2,3]", '"just a string"'):
+            resp = self.client.post(
+                reverse("otp_request"), payload, content_type="application/json"
+            )
+            self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST, payload)
+
+    def test_sql_injection_payloads_fail_validation_and_leave_db_intact(self):
+        before = User.objects.count()
+        for url_name in ("otp_request", "otp_verify", "onboarding", "register"):
+            resp = self.client.post(
+                reverse(url_name), {"email": self.SQLI, "password": "x", "code": "123456"}
+            )
+            self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST, url_name)
+        # Table still exists and nothing was created.
+        self.assertEqual(User.objects.count(), before)
+
+    def test_otp_code_must_be_six_digits(self):
+        User.objects.create_user(email="c@example.com")
+        resp = self.client.post(
+            reverse("otp_verify"), {"email": "c@example.com", "code": "abcdef"}
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("code", resp.data)
+
+    def test_password_longer_than_20_chars_is_rejected(self):
+        long_pw = "Aa1!" * 6  # 24 chars, otherwise valid
+        resp = self.client.post(
+            reverse("register"), {"email": "long@example.com", "password": long_pw}
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+        user = User.objects.create_user(email="cap@example.com")
+        self.client.force_authenticate(user)
+        resp = self.client.post(reverse("set_password"), {"password": long_pw})
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_oversized_email_is_rejected(self):
+        huge = "a" * 250 + "@example.com"  # 262 chars > RFC's 254
+        resp = self.client.post(reverse("otp_request"), {"email": huge})
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class PasswordLoginTests(APITestCase):
+    def test_returning_user_logs_in_with_password(self):
+        User.objects.create_user(email="back@example.com", password="SafePass!2026")
+        resp = self.client.post(
+            reverse("token_obtain_pair"),
+            {"email": "back@example.com", "password": "SafePass!2026"},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertIn("access", resp.data)
+        self.assertIn("refresh", resp.data)
+
+    def test_wrong_password_is_401(self):
+        User.objects.create_user(email="back2@example.com", password="SafePass!2026")
+        resp = self.client.post(
+            reverse("token_obtain_pair"),
+            {"email": "back2@example.com", "password": "nope-nope"},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_passwordless_otp_account_cannot_password_login(self):
+        # Onboarded but never set a password (step 3 pending) — must not
+        # be able to log in with an empty/guessed password.
+        User.objects.create_user(email="otp-only@example.com")  # unusable password
+        resp = self.client.post(
+            reverse("token_obtain_pair"),
+            {"email": "otp-only@example.com", "password": ""},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        resp = self.client.post(
+            reverse("token_obtain_pair"),
+            {"email": "otp-only@example.com", "password": "anything"},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
