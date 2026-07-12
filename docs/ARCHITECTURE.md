@@ -93,16 +93,17 @@ Postgres cluster is `16/finnguide`); the database inside it is `wayfara`.
 The canonical flow the whole system is built around — **form-first, no register
 wall**:
 
-1. **App → `POST /api/onboarding/`** (anonymous): profile + email. The backend
-   creates a passwordless `User` + `Student`, and in the same transaction
-   enqueues **two background tasks** on commit — university matching and
-   timeline generation — then emails a 6-digit OTP.
-2. **App → `POST /api/auth/otp/verify/`**: email + code → JWT access/refresh
+1. **App → `POST /api/v1/onboarding/`** (anonymous): profile + email. The
+   backend creates a passwordless `User` + `Student`, and in the same
+   transaction enqueues **two background tasks** on commit — university
+   matching and timeline generation — then emails a 6-digit OTP.
+2. **App → `POST /api/v1/auth/otp/verify/`**: email + code → JWT access/refresh
    pair. This verifies the email and *is* the login.
-3. **App → `POST /api/auth/password/`**: the user sets a password (onboarding
-   step 3). Only then does the app route to the dashboard.
-4. **Dashboard** reads `/api/profile/`, `/api/matches/`, `/api/tasks/` — by now
-   the background tasks have populated matches and a dated journey plan.
+3. **App → `POST /api/v1/auth/password/`**: the user sets a password
+   (onboarding step 3). Only then does the app route to the dashboard.
+4. **Dashboard** reads `/api/v1/profile/`, `/api/v1/matches/`,
+   `/api/v1/tasks/` — by now the background tasks have populated matches and
+   a dated journey plan.
 
 ---
 
@@ -155,14 +156,14 @@ across working sessions.
   account with zero friction; a password is set *after* verification, before the
   dashboard, so the account is properly secured for return logins.
 - **How.** `EmailOTP` stores the hashed code (5-attempt cap, 10-min expiry);
-  verify issues JWTs; `/api/auth/password/` sets the password; `/api/me/` exposes
-  `has_password` so the app knows whether onboarding step 3 is done.
+  verify issues JWTs; `/api/v1/auth/password/` sets the password; `/api/v1/me/`
+  exposes `has_password` so the app knows whether onboarding step 3 is done.
 - **Trade-offs.** OTP delivery depends on an email provider (console backend in
   dev). Magic links were rejected in favour of codes (better on mobile).
 
 ### 3.5 Form-first onboarding, no register wall
 - **Why.** Zero-friction funnel — the student sees value (their matches + a dated
-  plan) before being asked to commit. `POST /api/onboarding/` is `AllowAny` and
+  plan) before being asked to commit. `POST /api/v1/onboarding/` is `AllowAny` and
   combines profile + email in one anonymous submission.
 - **Trade-off.** The account exists before it's verified/secured, so downstream
   code treats "has a `Student` profile" and "has a password" as distinct signals.
@@ -215,7 +216,7 @@ across working sessions.
   **max 2–3** universities for the student's profile, shown in a **separate box
   above** the system-matched (heuristic) universities on Home. It's a free taste
   of the paid layer's value and must be its own endpoint/section — **not** folded
-  into `/api/matches/`.
+  into `/api/v1/matches/`.
 
 ### 3.10 `User` / `Student` split
 - Auth + entitlement (`email`, `password`, `role`, `tier`) live on `User`; the
@@ -229,6 +230,71 @@ across working sessions.
   upload ⇒ storage + signed access; new query ⇒ index + cache consideration.
   Default to boring, scalable choices (stateless Django behind a load balancer,
   Postgres as source of truth, Redis for cache/queue).
+
+### 3.12 API versioning: everything lives under `/api/v1/` (July 2026)
+- **Why.** Before this, every route hung directly off `/api/`. That's fine with
+  one client you control, but it's a trap the moment the app is in app stores:
+  a breaking change then has no way to roll forward without either stranding
+  old app builds or permanently constraining new ones to old behavior.
+- **How.** `wayfara/urls.py` defines one constant, `API_V1 = "api/v1/"`, and
+  every app's `include()` is prefixed with it — there's no code path that
+  registers an endpoint outside the version by accident. `/admin/` and
+  `/healthz` are the only routes that intentionally sit outside it (see 3.13).
+  A future breaking change gets `api/v2/` alongside `v1`, not a replacement —
+  `v1` stays live until every client has migrated.
+- **Enforced, not just documented.** `wayfara/tests_conventions.py::URLVersioningTests`
+  walks the root `urlpatterns` and fails CI if any top-level route isn't under
+  `admin/`, `healthz`, or `api/v1/`. A future session (human or Claude) that
+  reflexively adds `path("api/", include(...))` gets caught immediately, not
+  discovered after ship.
+- **Client-side.** The mobile client (`mobile/lib/api.ts`) prepends the version
+  once in `request()` via `API_VERSION_PREFIX`; every call site passes just the
+  resource path (`"/me/"`, not `"/api/me/"`), so a version bump is a one-line
+  change, not a find-and-replace across the file.
+
+### 3.13 `/healthz`: unauthenticated, unversioned, infra-only
+- **Why.** Layer 5 (hosting) and Layer 11 (load balancing) both need something
+  to ping that isn't gated by JWT auth or API versioning — Railway's health
+  check, a future load balancer, and any uptime monitor all expect one stable
+  path that never changes shape.
+- **How.** `wayfara/views.py::HealthCheckView` — no authentication, no
+  permission beyond `AllowAny`, no throttling (infra hits this every few
+  seconds; it shouldn't burn throttle budget or get rate-limited). It checks
+  the two synchronous dependencies a request actually needs — Postgres and the
+  Redis cache — and returns `200 {"status": "ok", "checks": {...}}` or
+  `503 {"status": "unhealthy", ...}`. Deliberately does **not** check the
+  Celery broker: a slow background queue isn't the same failure mode as "can't
+  serve requests," and coupling them would page someone for the wrong reason.
+- **Placement.** Lives at the bare path `/healthz`, outside `/api/v1/` entirely
+  — infra endpoints shouldn't move when the API version does.
+
+### 3.14 Strict input validation: reject unknown fields, don't discard them
+- **Why.** DRF's default behavior silently drops any request key a serializer
+  doesn't declare. That's convenient but means a typo, a stale client field
+  after a rename, or a mass-assignment probe against an undeclared field
+  vanishes without a trace instead of failing loudly. An endpoint is designed
+  to take specific data; anything else should be rejected, not swallowed.
+- **How.** `wayfara/serializers.py` defines `StrictSerializer` and
+  `StrictModelSerializer` — every serializer in the codebase inherits one of
+  these instead of DRF's plain `Serializer`/`ModelSerializer`. Their shared
+  `to_internal_value` diffs the request payload's keys against the declared
+  field set and raises a 400 naming every field it doesn't recognize.
+- **What this deliberately does NOT change.** A declared-but-`read_only` field
+  submitted by the client (e.g. PATCHing `/api/v1/profile/` with a stray
+  `"tier": "premium"`) is still silently ignored, not rejected — that's DRF's
+  existing, correct field-level access control, and changing it would break
+  any client that round-trips a full object back on PATCH. The strict layer
+  targets keys the serializer has never heard of, not read-only ones it has.
+- **Enforced, not just documented.** `wayfara/tests_conventions.py::StrictSerializerConventionTests`
+  imports every local app's `serializers` module and fails CI if any serializer
+  class defined there isn't a `Strict*` subclass — the same mechanism that
+  makes 3.12 durable against a future session forgetting the rule. Third-party
+  serializers we don't own (SimpleJWT's token serializers, wired directly in
+  `wayfara/urls.py`) are explicitly out of scope: fixed, tiny payloads with no
+  model write surface, not worth wrapping.
+- **Output.** Every `ModelSerializer.Meta.fields` in the codebase is an
+  explicit list — none use `fields = "__all__"` — so response shape was
+  already whitelisted by construction; this pass didn't need to change that.
 
 ---
 
@@ -270,7 +336,7 @@ to iterate and unit-test.
   rating. Signals include IELTS headroom over `min_ielts_score`, acceptance-rate
   selectivity, intake match, and tuition-free bonus. Produces `Match` rows
   (distinct from `Application`, which is user *intent*). Served best-first by
-  `/api/matches/`.
+  `/api/v1/matches/`.
 - **Timeline engine** (`students/services.py`). Instantiates admin-editable
   `TaskTemplate`s into per-student `Task`s with concrete `due_date`s computed
   **backwards from anchors** (intake start, application/offer deadlines, visa
@@ -311,7 +377,7 @@ sources stay **admin-managed baselines** rather than being auto-scraped.
   **blacklist after rotation** (`token_blacklist` app). The refresh endpoint
   returns a *new pair*; the app must persist both.
 - **Passwordless OTP** as the entry (3.4), password set post-verification.
-- **Roles.** `User.role` is `student` or `advisor`. `/api/me/` is the session
+- **Roles.** `User.role` is `student` or `advisor`. `/api/v1/me/` is the session
   bootstrap — it returns `role`, `tier`, `email_verified`, `has_password`, and
   `onboarding_complete`, and the app routes on those (student dashboard vs
   advisor console, and which onboarding step remains).
@@ -321,7 +387,7 @@ sources stay **admin-managed baselines** rather than being auto-scraped.
 
 ### 4.6 API surface
 
-All under `/api/`. Auth required unless marked **(anon)**.
+All under `/api/v1/` (3.12). Auth required unless marked **(anon)**.
 
 | Method + path | Purpose |
 |---|---|
@@ -332,7 +398,7 @@ All under `/api/`. Auth required unless marked **(anon)**.
 | `POST /auth/password/` | Set/replace the account password (onboarding step 3) |
 | `GET /me/` | Session bootstrap (role, tier, verified, has_password, onboarding_complete) |
 | `POST /auth/logout/` | Blacklist refresh token + drop device push token |
-| `POST /devices/` | Register an Expo push token |
+| `POST\|DELETE /devices/` | Register / deregister an Expo push token |
 | `GET\|PATCH /profile/` | Read/update the onboarding profile |
 | `GET /matches/` | University recommendations, best fit first |
 | `GET /tasks/` (`?phase=N`) · `POST /tasks/<id>/status/` | Journey plan + status changes |
@@ -341,6 +407,9 @@ All under `/api/`. Auth required unless marked **(anon)**.
 
 > `POST /auth/register/` (password registration) exists but is **not** the app's
 > entry point — onboarding + OTP is. It remains for admin/testing.
+
+> `GET /healthz` (bare path, outside `/api/v1/`, unauthenticated) is the only
+> exception — see 3.13.
 
 ### 4.7 Security posture
 - **Row-level scoping.** Student-owned models use a manager (`owned_by` /
@@ -463,16 +532,16 @@ Awais's mandated launch-readiness checklist. Status as of this document:
 | # | Layer | Status | Where it lives |
 |---|---|---|---|
 | 1 | Frontend foundations | 🟢 | Nav, auth state, secure token storage, typed API client, onboarding spine, design system |
-| 2 | APIs & backend logic | 🟢 | 7 apps; matching + timeline engines; advisor; scraper |
+| 2 | APIs & backend logic | 🟢 | 7 apps; matching + timeline engines; advisor; scraper; versioned `/api/v1/`; strict input validation on every serializer |
 | 3 | Database & storage | 🟡 | Postgres :5433 + migrations done; **media still local disk** (needs S3/R2 + signed access) |
 | 4 | Auth & permissions | 🟢 | JWT + OTP + password step; roles; row-level scoping |
-| 5 | Hosting & deployment | 🔴 | Not started (Railway planned; env-driven config already prepped) |
+| 5 | Hosting & deployment | 🔴 | Not started (Railway planned; env-driven config already prepped); `/healthz` ready for the platform health check |
 | 6 | Cloud & compute | 🟡 | Celery/Redis/Beat designed & correct; runs only locally |
-| 7 | CI/CD & version control | 🟡 | GitHub Actions CI (Postgres service); **no CD** (blocked on Layer 5) |
+| 7 | CI/CD & version control | 🟡 | GitHub Actions CI (Postgres service) + guardrail tests for API versioning/strict-serializer conventions; **no CD** (blocked on Layer 5) |
 | 8 | Security & RLS | 🟡 | App-layer scoping done; `SECURE_*`/HSTS/cookie flags are deploy-time |
 | 9 | Rate limiting | 🟢 | DRF scoped throttles + per-inbox OTP cap |
 | 10 | Caching & CDN | 🟡 | Redis cache + cached discovery API; **CDN untouched** (no static/media host yet) |
-| 11 | Load balancing & scaling | 🔴 | Stateless design honoured; nothing to balance yet (blocked on Layer 5) |
+| 11 | Load balancing & scaling | 🔴 | Stateless design honoured; nothing to balance yet (blocked on Layer 5); `/healthz` ready as the LB health-check target |
 | 12 | Error tracking & logs | 🟢 | Sentry + Sentry Logs (WARNING+), env-gated |
 | 13 | Availability & recovery | 🟡 | `backup_db.sh` exists; **no tested restore / uptime monitoring** |
 
@@ -502,14 +571,12 @@ Consolidated, so nothing hides in prose:
    the scoring heuristic doesn't weight it. Product decision pending.
 5. **Field-of-study taxonomy is hardcoded in the app.** The onboarding form's
    field chips (IT/Business/Design/Engineering) must match the Opintopolku
-   catalogue's values; a `/api/fields/` endpoint would remove the duplication.
+   catalogue's values; a `/api/v1/fields/` endpoint would remove the duplication.
 6. **Migri figures are stubbed / snapshotted.** The scraper's Migri source is a
    stub; `Visa.funds_required_eur` and `PolicyFigure` are snapshots that need
    verification against Migri's current numbers before Phase 4 content ships.
 7. **Payment layer not built.** `User.tier` is webhook-driven by design, but the
    `Payment` model + gateway integration land later (with merchant onboarding).
-8. **Advisor-tap sign-out footgun (app).** Home's avatar currently signs out on
-   tap — a stand-in until a real Profile tab exists.
 
 ---
 
@@ -517,8 +584,9 @@ Consolidated, so nothing hides in prose:
 
 Near-term, roughly ordered:
 
-1. **Layer 1 breadth** — Profile tab (+ deliberate sign-out), the Explore/Apps/
-   Chat tabs, in-app push registration, and the advisor/messaging surface.
+1. **Layer 1 breadth** — Apps/Chat tabs (Profile + Explore/matches already
+   shipped, with deliberate sign-out behind a confirm), in-app push
+   registration, and the advisor/messaging surface.
 2. **Layer 3 storage** — S3/R2 + signed access, before document upload UI.
 3. **Hosting (Layer 5, when ready)** — Railway: set the env vars above, get TLS +
    the `SECURE_*` settings, wire CD, point uptime monitoring. Unblocks ~5 layers.
@@ -529,4 +597,4 @@ Near-term, roughly ordered:
 
 Open questions to revisit: migrations vs first deploy target; NativeWind v5
 stable; Pakistani gateway merchant onboarding (needs business docs); a
-`/api/fields/` endpoint for the onboarding taxonomy.
+`/api/v1/fields/` endpoint for the onboarding taxonomy.

@@ -1,9 +1,11 @@
 from rest_framework import serializers
 
+from wayfara.serializers import StrictModelSerializer
+
 from .models import Match
 
 
-class MatchSerializer(serializers.ModelSerializer):
+class MatchSerializer(StrictModelSerializer):
     program_name = serializers.CharField(source="program.name", read_only=True)
     degree_level = serializers.CharField(source="program.degree_level", read_only=True)
     university = serializers.CharField(source="program.university.name", read_only=True)

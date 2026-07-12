@@ -1,9 +1,11 @@
 from rest_framework import serializers
 
+from wayfara.serializers import StrictModelSerializer
+
 from .models import Program, University
 
 
-class _ProfileMixin(serializers.ModelSerializer):
+class _ProfileMixin(StrictModelSerializer):
     """Curated KB fields, flattened from the related UniversityProfile.
 
     Editorial text (overview) stays hidden until a human signs it off
@@ -55,7 +57,7 @@ class UniversityListSerializer(_ProfileMixin):
         ]
 
 
-class CatalogProgramSerializer(serializers.ModelSerializer):
+class CatalogProgramSerializer(StrictModelSerializer):
     campus = serializers.CharField(source="campus.name", read_only=True, default=None)
 
     class Meta:

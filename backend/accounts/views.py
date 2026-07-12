@@ -8,7 +8,9 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from .models import DeviceToken
 from .serializers import (
+    DeviceTokenDeleteSerializer,
     DeviceTokenSerializer,
+    LogoutSerializer,
     RegisterSerializer,
     RequestOTPSerializer,
     SetPasswordSerializer,
@@ -112,18 +114,15 @@ class LogoutView(APIView):
     """Blacklist the refresh token so logout actually revokes the session."""
 
     def post(self, request):
-        token = request.data.get("refresh")
-        if not token:
-            return Response(
-                {"detail": "refresh token required."}, status=status.HTTP_400_BAD_REQUEST
-            )
+        serializer = LogoutSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
         try:
-            RefreshToken(token).blacklist()
+            RefreshToken(serializer.validated_data["refresh"]).blacklist()
         except TokenError:
             pass  # already expired/blacklisted — logout is idempotent
         # Drop this device's push token on logout so a signed-out phone stops
         # receiving notifications.
-        device = request.data.get("device_token")
+        device = serializer.validated_data.get("device_token")
         if device:
             DeviceToken.objects.filter(user=request.user, token=device).delete()
         return Response(status=status.HTTP_205_RESET_CONTENT)
@@ -149,7 +148,9 @@ class DeviceRegisterView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     def delete(self, request):
-        token = request.data.get("token")
-        if token:
-            DeviceToken.objects.filter(user=request.user, token=token).delete()
+        serializer = DeviceTokenDeleteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        DeviceToken.objects.filter(
+            user=request.user, token=serializer.validated_data["token"]
+        ).delete()
         return Response(status=status.HTTP_204_NO_CONTENT)

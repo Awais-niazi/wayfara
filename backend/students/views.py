@@ -1,6 +1,6 @@
 from django.db import transaction
 from django.utils import timezone
-from rest_framework import generics, permissions, status
+from rest_framework import generics, permissions, serializers, status
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
@@ -65,7 +65,11 @@ class TaskListView(generics.ListAPIView):
         qs = Task.objects.owned_by(self.request.user)
         phase = self.request.query_params.get("phase")
         if phase is not None:
-            qs = qs.filter(phase=phase)
+            # Task.phase is a PositiveSmallIntegerField — a non-numeric value
+            # would otherwise hit the DB driver and 500. Reject it at the door.
+            if not phase.isdigit():
+                raise serializers.ValidationError({"phase": ["Must be a non-negative integer."]})
+            qs = qs.filter(phase=int(phase))
         return qs
 
 

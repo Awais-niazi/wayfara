@@ -1,11 +1,12 @@
 from rest_framework import serializers
 
 from students.models import Document, Student
+from wayfara.serializers import StrictModelSerializer, StrictSerializer
 
 from .models import AdvisorMessage
 
 
-class AdvisorMessageSerializer(serializers.ModelSerializer):
+class AdvisorMessageSerializer(StrictModelSerializer):
     mine = serializers.SerializerMethodField()
     audio_url = serializers.SerializerMethodField()
 
@@ -33,7 +34,7 @@ class AdvisorMessageSerializer(serializers.ModelSerializer):
 MAX_AUDIO_BYTES = 10 * 1024 * 1024  # 10 MB — a voice note, not a podcast
 
 
-class SendMessageSerializer(serializers.Serializer):
+class SendMessageSerializer(StrictSerializer):
     body = serializers.CharField(
         max_length=5000, required=False, allow_blank=True, trim_whitespace=True
     )
@@ -53,13 +54,13 @@ class SendMessageSerializer(serializers.Serializer):
         return data
 
 
-class ActivateSerializer(serializers.Serializer):
+class ActivateSerializer(StrictSerializer):
     uid = serializers.CharField()
     token = serializers.CharField()
     password = serializers.CharField(write_only=True, min_length=8)
 
 
-class AdvisorStudentListSerializer(serializers.ModelSerializer):
+class AdvisorStudentListSerializer(StrictModelSerializer):
     """Compact row for the advisor's caseload list."""
 
     email = serializers.EmailField(source="user.email", read_only=True)
@@ -77,7 +78,7 @@ class AdvisorStudentListSerializer(serializers.ModelSerializer):
         return full or None
 
 
-class AdvisorDocumentSerializer(serializers.ModelSerializer):
+class AdvisorDocumentSerializer(StrictModelSerializer):
     download_url = serializers.SerializerMethodField()
 
     class Meta:

@@ -102,6 +102,26 @@ class ProfileTests(APITestCase):
         self.user.refresh_from_db()
         self.assertEqual(self.user.tier, "free")
 
+    def test_name_is_editable_and_writes_through_to_user(self):
+        self.client.force_authenticate(self.user)
+        resp = self.client.patch(
+            reverse("profile"),
+            {"first_name": "Ayesha", "last_name": "Khan", "home_city": "Lahore"},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp.data["first_name"], "Ayesha")
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.first_name, "Ayesha")
+        self.assertEqual(self.user.last_name, "Khan")
+        # Student-side fields in the same PATCH still land too.
+        self.assertEqual(Student.objects.get(user=self.user).home_city, "Lahore")
+
+    def test_unknown_field_is_rejected_not_discarded(self):
+        self.client.force_authenticate(self.user)
+        resp = self.client.patch(reverse("profile"), {"is_admin": True})
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("is_admin", resp.data)
+
 
 class SchemaRelationTests(APITestCase):
     """Smoke-test the cross-app relationships in the domain schema."""

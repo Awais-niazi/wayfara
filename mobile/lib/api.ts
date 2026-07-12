@@ -200,6 +200,11 @@ export function configureApi(next: ApiHooks) {
   hooks = next;
 }
 
+// Every endpoint below lives under this one versioned prefix on the backend
+// (wayfara/urls.py); call sites pass just the resource path (e.g. "/me/"),
+// never "/api/...", so a version bump is a one-line change here.
+const API_VERSION_PREFIX = "/api/v1";
+
 async function request<T>(
   path: string,
   init: RequestInit = {},
@@ -214,7 +219,7 @@ async function request<T>(
     if (token) headers.Authorization = `Bearer ${token}`;
   }
 
-  const res = await fetch(`${API_URL}${path}`, { ...init, headers });
+  const res = await fetch(`${API_URL}${API_VERSION_PREFIX}${path}`, { ...init, headers });
 
   if (res.status === 401 && auth && !retried) {
     const fresh = await hooks.onUnauthorized();
@@ -244,53 +249,53 @@ const post = (body: unknown): RequestInit => ({
 
 /** The Get Started form (anonymous). Creates the account + emails the OTP. */
 export function submitOnboarding(form: OnboardingForm) {
-  return request<{ detail: string; email: string }>("/api/onboarding/", post(form), {
+  return request<{ detail: string; email: string }>("/onboarding/", post(form), {
     auth: false,
   });
 }
 
 /** Send a login code to an existing account. Always 200 (no enumeration). */
 export function requestOtp(email: string) {
-  return request<{ detail: string }>("/api/auth/otp/request/", post({ email }), {
+  return request<{ detail: string }>("/auth/otp/request/", post({ email }), {
     auth: false,
   });
 }
 
 /** Exchange email + 6-digit code for JWT tokens. This IS the login. */
 export function verifyOtp(email: string, code: string) {
-  return request<Tokens>("/api/auth/otp/verify/", post({ email, code }), {
+  return request<Tokens>("/auth/otp/verify/", post({ email, code }), {
     auth: false,
   });
 }
 
 /** Rotate the refresh token; returns a new access AND refresh pair. */
 export function refreshTokens(refresh: string) {
-  return request<Tokens>("/api/auth/token/refresh/", post({ refresh }), {
+  return request<Tokens>("/auth/token/refresh/", post({ refresh }), {
     auth: false,
   });
 }
 
 /** Session bootstrap — 401 means signed out. */
 export function getMe() {
-  return request<Me>("/api/me/");
+  return request<Me>("/me/");
 }
 
 /** Onboarding step 3: create the account password (authenticated). */
 export function setPassword(password: string) {
-  return request<{ detail: string }>("/api/auth/password/", post({ password }));
+  return request<{ detail: string }>("/auth/password/", post({ password }));
 }
 
 /** Blacklist the refresh token server-side. */
 export function logout(refresh: string) {
-  return request<void>("/api/auth/logout/", post({ refresh }));
+  return request<void>("/auth/logout/", post({ refresh }));
 }
 
 export function getProfile() {
-  return request<Profile>("/api/profile/");
+  return request<Profile>("/profile/");
 }
 
 export function updateProfile(patch: Partial<Profile>) {
-  return request<Profile>("/api/profile/", {
+  return request<Profile>("/profile/", {
     method: "PATCH",
     body: JSON.stringify(patch),
   });
@@ -298,7 +303,7 @@ export function updateProfile(patch: Partial<Profile>) {
 
 /** University recommendations, best fit first. */
 export function getMatches() {
-  return request<Match[]>("/api/matches/");
+  return request<Match[]>("/matches/");
 }
 
 /** AI-curated highlight: at most 2-3 matches the AI layer singled out, each
@@ -310,20 +315,20 @@ export interface AiMatch extends Match {
 }
 
 export function getAiMatches() {
-  return request<AiMatch[]>("/api/matches/ai/");
+  return request<AiMatch[]>("/matches/ai/");
 }
 
 /** One university with curated KB fields + its active programmes (public, cached). */
 export function getUniversity(id: number) {
-  return request<UniversityDetail>(`/api/universities/${id}/`, {}, { auth: false });
+  return request<UniversityDetail>(`/universities/${id}/`, {}, { auth: false });
 }
 
 /** The journey plan; optionally scoped to one phase. */
 export function getTasks(phase?: number) {
   const qs = phase !== undefined ? `?phase=${phase}` : "";
-  return request<Task[]>(`/api/tasks/${qs}`);
+  return request<Task[]>(`/tasks/${qs}`);
 }
 
 export function setTaskStatus(id: number, status: TaskStatus) {
-  return request<Task>(`/api/tasks/${id}/status/`, post({ status }));
+  return request<Task>(`/tasks/${id}/status/`, post({ status }));
 }

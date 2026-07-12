@@ -1,12 +1,14 @@
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
+from wayfara.serializers import StrictModelSerializer, StrictSerializer
+
 from .models import Student, Task
 
 User = get_user_model()
 
 
-class TaskSerializer(serializers.ModelSerializer):
+class TaskSerializer(StrictModelSerializer):
     is_critical = serializers.BooleanField(source="template.is_critical", default=False, read_only=True)
 
     class Meta:
@@ -17,11 +19,11 @@ class TaskSerializer(serializers.ModelSerializer):
         ]
 
 
-class TaskStatusSerializer(serializers.Serializer):
+class TaskStatusSerializer(StrictSerializer):
     status = serializers.ChoiceField(choices=Task.Status.choices)
 
 
-class OnboardingSerializer(serializers.ModelSerializer):
+class OnboardingSerializer(StrictModelSerializer):
     """The Get Started form: email + profile in one anonymous submission."""
 
     email = serializers.EmailField()
@@ -56,13 +58,30 @@ class OnboardingSerializer(serializers.ModelSerializer):
         return student
 
 
-class ProfileSerializer(serializers.ModelSerializer):
-    """Flat profile view over Student + read-only account fields from User."""
+class ProfileSerializer(StrictModelSerializer):
+    """Flat profile view over Student + account fields from User.
+
+    Name is editable (it belongs to the person); email and tier are not —
+    email is the account key and tier is flipped only by the payment webhook.
+    """
 
     email = serializers.EmailField(source="user.email", read_only=True)
-    first_name = serializers.CharField(source="user.first_name", read_only=True)
-    last_name = serializers.CharField(source="user.last_name", read_only=True)
+    first_name = serializers.CharField(
+        source="user.first_name", required=False, allow_blank=True, max_length=150
+    )
+    last_name = serializers.CharField(
+        source="user.last_name", required=False, allow_blank=True, max_length=150
+    )
     tier = serializers.CharField(source="user.tier", read_only=True)
+
+    def update(self, instance, validated_data):
+        # Writable user.* fields arrive nested under "user" via their source.
+        user_data = validated_data.pop("user", None)
+        if user_data:
+            for attr, value in user_data.items():
+                setattr(instance.user, attr, value)
+            instance.user.save(update_fields=list(user_data))
+        return super().update(instance, validated_data)
 
     class Meta:
         model = Student
