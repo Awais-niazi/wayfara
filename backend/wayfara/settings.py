@@ -11,19 +11,30 @@ import os
 import sys
 
 import dj_database_url
+from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 load_dotenv(BASE_DIR / ".env")
 
-SECRET_KEY = os.environ.get(
-    "DJANGO_SECRET_KEY", "dev-only-insecure-key-change-in-production"
-)
-
 DEBUG = os.environ.get("DJANGO_DEBUG", "true").lower() == "true"
 
 TESTING = "test" in sys.argv
+
+# A signed JWT / session / password-reset token is only as trustworthy as this
+# key. The dev fallback is convenient locally, but shipping it to production
+# would make every signature forgeable — so refuse to boot with DEBUG off and
+# no key set, rather than silently run insecure.
+_DEV_SECRET_KEY = "dev-only-insecure-key-change-in-production"
+SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", _DEV_SECRET_KEY)
+if not DEBUG and not TESTING and SECRET_KEY == _DEV_SECRET_KEY:
+    raise ImproperlyConfigured(
+        "DJANGO_SECRET_KEY must be set in production (DEBUG=False). "
+        "Generate one with: python -c "
+        "'from django.core.management.utils import get_random_secret_key; "
+        "print(get_random_secret_key())'"
+    )
 
 ALLOWED_HOSTS = os.environ.get("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
 
@@ -143,6 +154,10 @@ if TESTING:
     REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"] = {
         scope: "10000/min" for scope in REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"]
     }
+    # Fast (insecure) hasher for tests only. Passwords AND OTP codes now go
+    # through the password hashers; PBKDF2 on every create_user / OTP issue
+    # dominates the suite runtime otherwise. Never used outside `test`.
+    PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
 
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60),
@@ -155,6 +170,31 @@ SIMPLE_JWT = {
 CORS_ALLOWED_ORIGINS = os.environ.get(
     "CORS_ALLOWED_ORIGINS", "http://localhost:8081,http://localhost:19006"
 ).split(",")
+
+# ─── Transport security (Layer 8) ────────────────────────────────────────────
+# Gated on DEBUG so local HTTP dev is untouched, but every flag is defined here
+# now rather than scrambled together at deploy time. They switch on the moment
+# the app runs with DEBUG=False behind TLS.
+if not DEBUG:
+    # Redirect HTTP→HTTPS. Behind a proxy/load balancer that terminates TLS,
+    # trust its forwarded-proto header so Django knows the original was https.
+    SECURE_SSL_REDIRECT = True
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    # HSTS: tell browsers to only ever use HTTPS. Start at 1 year; include
+    # subdomains and allow preload only once you're sure every subdomain is TLS.
+    SECURE_HSTS_SECONDS = int(os.environ.get("SECURE_HSTS_SECONDS", 60 * 60 * 24 * 365))
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+    # Cookies only over HTTPS. (JWTs live in the app's secure store, not
+    # cookies, but the admin/session and CSRF cookies still matter.)
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    # Defense-in-depth headers.
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    # Trust the proxy's Host/proto forwarding for CSRF origin checks in prod.
+    CSRF_TRUSTED_ORIGINS = [
+        o for o in os.environ.get("CSRF_TRUSTED_ORIGINS", "").split(",") if o
+    ]
 
 LANGUAGE_CODE = "en-us"
 TIME_ZONE = "UTC"

@@ -271,3 +271,32 @@ class PasswordLoginTests(APITestCase):
             {"email": "otp-only@example.com", "password": "anything"},
         )
         self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
+
+
+class OTPStorageTests(APITestCase):
+    """The OTP code is hashed at rest and never persisted in plaintext."""
+
+    def test_code_is_stored_hashed_not_plaintext(self):
+        from accounts.models import EmailOTP
+
+        user = User.objects.create_user(email="h@example.com")
+        otp = EmailOTP.issue(user)
+        plaintext = otp.plaintext_code
+
+        stored = EmailOTP.objects.get(pk=otp.pk)
+        # The DB column holds a salted hash, not the 6 digits.
+        self.assertNotEqual(stored.code_hash, plaintext)
+        self.assertNotIn(plaintext, stored.code_hash)
+        self.assertGreater(len(stored.code_hash), 20)
+        # And it still verifies against the plaintext.
+        self.assertTrue(stored.check_code(plaintext))
+        self.assertFalse(stored.check_code("000000"))
+
+    def test_issue_invalidates_previous_unused_codes(self):
+        from accounts.models import EmailOTP
+
+        user = User.objects.create_user(email="h2@example.com")
+        first = EmailOTP.issue(user)
+        EmailOTP.issue(user)  # second issue
+        first.refresh_from_db()
+        self.assertTrue(first.used)  # old code can no longer be used

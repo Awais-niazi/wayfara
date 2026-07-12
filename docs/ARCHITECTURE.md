@@ -434,16 +434,26 @@ All under `/api/v1/` (3.12). Auth required unless marked **(anon)**.
   is parameterized ORM) — so these caps are defense-in-depth, not the primary
   control. The per-inbox OTP throttle also no longer 500s on a non-dict JSON
   body (it now returns 400).
+- **OTP codes are hashed at rest (July 2026).** `EmailOTP` stores only a salted
+  hash (`code_hash`, via `make_password`); the plaintext lives just long enough
+  to email it, on a transient `plaintext_code` attribute that is never
+  persisted. Verification uses `check_password`, whose internal
+  `constant_time_compare` also closes the timing side-channel. A DB-read
+  attacker can't lift a live code. (Tests use an MD5 hasher under `TESTING` so
+  this doesn't dominate suite runtime.)
+- **`SECRET_KEY` fail-fast (July 2026).** The insecure dev fallback key is still
+  convenient locally, but the app now **refuses to boot** with `DEBUG=False` and
+  no `DJANGO_SECRET_KEY` set — a forgeable-signature deploy is impossible rather
+  than silent.
 - **Transport controls.** `CORS_ALLOWED_ORIGINS` and `ALLOWED_HOSTS` are
   env-driven (dev defaults to localhost). Native app traffic isn't subject to
   CORS; the web build is, so LAN/production origins must be whitelisted.
-- **Not yet set** (deploy-time, Layer 8): `SECURE_SSL_REDIRECT`, HSTS, secure
-  cookie flags — these light up when a real host + TLS exist.
-- **Known follow-ups (not blocking, tracked in §8).** OTP codes are stored in
-  plaintext (short-lived, single-use, but a DB-read attacker could use an
-  unexpired one); `verify_otp`'s code comparison isn't constant-time; and
-  `DJANGO_SECRET_KEY` has an insecure dev fallback that **must** be set in
-  production.
+- **Transport security (Layer 8), defined and gated on `DEBUG` (July 2026).**
+  With `DEBUG=False` the app enables `SECURE_SSL_REDIRECT`, HSTS (1 yr,
+  subdomains, preload), `SESSION_COOKIE_SECURE`/`CSRF_COOKIE_SECURE`,
+  `SECURE_CONTENT_TYPE_NOSNIFF`, and trusts a proxy's `X-Forwarded-Proto`.
+  `manage.py check --deploy` is clean but for the key-length notice on a dummy
+  key. Local HTTP dev is untouched (all flags off while `DEBUG=True`).
 
 ---
 
@@ -512,8 +522,11 @@ code change.
 |---|---|---|
 | `DATABASE_URL` | Postgres DSN | SQLite fallback if unset; real dev → `:5433/wayfara` |
 | `DJANGO_DEBUG` | debug mode | `true` |
+| `DJANGO_SECRET_KEY` | signing key | dev fallback; **required** when `DEBUG=False` (app won't boot without it) |
 | `DJANGO_ALLOWED_HOSTS` | Host header allowlist | `localhost,127.0.0.1` |
 | `CORS_ALLOWED_ORIGINS` | web origins | `localhost:8081,localhost:19006` |
+| `CSRF_TRUSTED_ORIGINS` | prod CSRF origins | unset (comma-separated; used at `DEBUG=False`) |
+| `SECURE_HSTS_SECONDS` | HSTS max-age | `31536000` (1 yr) when `DEBUG=False` |
 | `REDIS_URL` | Celery broker/result | `redis://localhost:6379/5` |
 | `CELERY_TASK_ALWAYS_EAGER` | run tasks inline | `true` (dev/test) |
 | `DJANGO_EMAIL_BACKEND` | OTP delivery | console backend (codes print to the server log) |
@@ -558,7 +571,7 @@ Awais's mandated launch-readiness checklist. Status as of this document:
 | 5 | Hosting & deployment | 🔴 | Not started (Railway planned; env-driven config already prepped); `/healthz` ready for the platform health check |
 | 6 | Cloud & compute | 🟡 | Celery/Redis/Beat designed & correct; runs only locally |
 | 7 | CI/CD & version control | 🟡 | GitHub Actions CI (Postgres service) + guardrail tests for API versioning/strict-serializer conventions; **no CD** (blocked on Layer 5) |
-| 8 | Security & RLS | 🟡 | App-layer scoping done; `SECURE_*`/HSTS/cookie flags are deploy-time |
+| 8 | Security & RLS | 🟢 | App-layer scoping; OTP hashed + constant-time; SECRET_KEY fail-fast; `SECURE_*`/HSTS/cookie flags wired (auto-on at `DEBUG=False`) |
 | 9 | Rate limiting | 🟢 | DRF scoped throttles + per-inbox OTP cap |
 | 10 | Caching & CDN | 🟡 | Redis cache + cached discovery API; **CDN untouched** (no static/media host yet) |
 | 11 | Load balancing & scaling | 🔴 | Stateless design honoured; nothing to balance yet (blocked on Layer 5); `/healthz` ready as the LB health-check target |
@@ -597,13 +610,11 @@ Consolidated, so nothing hides in prose:
    verification against Migri's current numbers before Phase 4 content ships.
 7. **Payment layer not built.** `User.tier` is webhook-driven by design, but the
    `Payment` model + gateway integration land later (with merchant onboarding).
-8. **Auth hardening follow-ups (from the July 2026 scan).** Three items, none
-   blocking but all worth closing before real traffic: (a) OTP codes stored in
-   plaintext — hash them like passwords (they're short-lived + single-use, so
-   low but non-zero risk); (b) `verify_otp` compares codes with `!=`, not
-   `secrets.compare_digest` — a theoretical timing side-channel; (c)
-   `DJANGO_SECRET_KEY` has an insecure dev fallback — **must** be set in the
-   production environment or every JWT/signature is forgeable.
+8. **~~Auth hardening follow-ups (July 2026 scan)~~ — DONE.** All three closed:
+   OTP codes are now hashed at rest + verified in constant time (4.7), and the
+   app fail-fasts on a missing `DJANGO_SECRET_KEY` in production. The only
+   deploy-time action left is *setting* a real `DJANGO_SECRET_KEY` (and the
+   other prod env vars in §6) — the code now enforces it.
 
 ---
 

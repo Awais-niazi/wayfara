@@ -11,6 +11,17 @@ from .models import Student
 
 User = get_user_model()
 
+
+def otp_code_from_email():
+    """Pull the 6-digit code out of the most recent OTP email. Codes are
+    hashed at rest, so the email is the only place the plaintext exists —
+    which is exactly how a real user gets it."""
+    import re
+
+    match = re.search(r"\b(\d{6})\b", mail.outbox[-1].body)
+    assert match, "No 6-digit code found in the OTP email"
+    return match.group(1)
+
 FORM = {
     "email": "applicant@example.com",
     "study_level": "masters",
@@ -81,7 +92,7 @@ class OnboardingFlowTests(APITestCase):
         self.assertEqual(Match.objects.get(program=reach).fit, "reach")
 
         # Verify OTP -> tokens
-        code = user.otps.get(used=False).code
+        code = otp_code_from_email()
         resp = self.client.post(
             reverse("otp_verify"), {"email": "applicant@example.com", "code": code}
         )
@@ -129,7 +140,7 @@ class OnboardingFlowTests(APITestCase):
             )
             self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
         # Correct code now rejected too: attempt limit reached
-        code = user.otps.get(used=False).code
+        code = otp_code_from_email()
         resp = self.client.post(reverse("otp_verify"), {"email": user.email, "code": code})
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
 

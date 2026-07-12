@@ -11,7 +11,7 @@ def issue_and_send_otp(user):
     send_mail(
         subject="Your Wayfara code",
         message=(
-            f"Your Wayfara verification code is: {otp.code}\n\n"
+            f"Your Wayfara verification code is: {otp.plaintext_code}\n\n"
             f"It expires in {settings.OTP_LIFETIME_MINUTES} minutes.\n\n"
             "We're matching universities to your profile right now — enter the "
             "code in the app to see your results.\n\n"
@@ -29,7 +29,7 @@ def verify_otp(user, code):
     otp = user.otps.filter(used=False).order_by("-created_at").first()
     if otp is None or not otp.is_valid_now():
         return False
-    if otp.code != code:
+    if not otp.check_code(code):
         otp.attempts += 1
         otp.save(update_fields=["attempts"])
         return False
