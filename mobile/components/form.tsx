@@ -24,22 +24,32 @@ export function Field({
   autoCapitalize = "none",
   maxLength,
   secure = false,
+  error = null,
+  hint,
 }: {
   label: string;
   value: string;
   onChangeText: (t: string) => void;
   placeholder?: string;
   keyboardType?: KeyboardTypeOptions;
-  autoCapitalize?: "none" | "sentences" | "words";
+  autoCapitalize?: "none" | "sentences" | "words" | "characters";
   maxLength?: number;
   secure?: boolean;
+  error?: string | null;
+  hint?: string;
 }) {
   const [focused, setFocused] = useState(false);
   const [hidden, setHidden] = useState(secure);
   return (
     <View style={styles.group}>
       <Text style={styles.label}>{label}</Text>
-      <View style={[styles.field, focused && styles.fieldFocused]}>
+      <View
+        style={[
+          styles.field,
+          focused && styles.fieldFocused,
+          !!error && styles.fieldError,
+        ]}
+      >
         <TextInput
           value={value}
           onChangeText={onChangeText}
@@ -59,6 +69,11 @@ export function Field({
           </Pressable>
         )}
       </View>
+      {error ? (
+        <Text style={styles.fieldErrorText}>{error}</Text>
+      ) : hint ? (
+        <Text style={styles.fieldHint}>{hint}</Text>
+      ) : null}
     </View>
   );
 }
@@ -127,6 +142,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 15,
   },
   fieldFocused: { borderWidth: 1.5, borderColor: colors.accent },
+  fieldError: { borderWidth: 1.5, borderColor: "#D6543A" },
+  fieldErrorText: {
+    fontFamily: fonts.bodySemi,
+    fontSize: 12,
+    color: "#B3402A",
+    marginTop: 2,
+  },
+  fieldHint: {
+    fontFamily: fonts.bodyRegular,
+    fontSize: 12,
+    color: colors.textFaintest,
+    marginTop: 2,
+  },
   input: {
     flex: 1,
     fontFamily: fonts.body,

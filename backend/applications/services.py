@@ -20,11 +20,50 @@ STUDY_LEVEL_TO_DEGREE = {
 }
 
 
-def _parse_ielts(raw):
+# Approximate official concordance tables mapping each test to an IELTS overall
+# band: (min raw score, IELTS band), highest first — return the band for the
+# highest threshold the score clears. Approximate boundaries are fine since this
+# only feeds match scoring, not any published claim.
+_CONCORDANCE = {
+    Student.LanguageTest.TOEFL: [
+        (118, Decimal("9.0")), (115, Decimal("8.5")), (110, Decimal("8.0")),
+        (102, Decimal("7.5")), (94, Decimal("7.0")), (79, Decimal("6.5")),
+        (60, Decimal("6.0")), (46, Decimal("5.5")), (35, Decimal("5.0")),
+        (32, Decimal("4.5")),
+    ],
+    Student.LanguageTest.PTE: [
+        (89, Decimal("9.0")), (83, Decimal("8.5")), (79, Decimal("8.0")),
+        (73, Decimal("7.5")), (65, Decimal("7.0")), (58, Decimal("6.5")),
+        (50, Decimal("6.0")), (43, Decimal("5.5")), (36, Decimal("5.0")),
+        (30, Decimal("4.5")),
+    ],
+    Student.LanguageTest.DUOLINGO: [
+        (160, Decimal("8.5")), (150, Decimal("8.0")), (140, Decimal("7.5")),
+        (130, Decimal("7.0")), (120, Decimal("6.5")), (115, Decimal("6.0")),
+        (105, Decimal("5.5")), (95, Decimal("5.0")), (85, Decimal("4.5")),
+    ],
+}
+
+
+def _ielts_equivalent(student):
+    """The student's English level as an IELTS band, converting TOEFL/PTE/
+    Duolingo via concordance. None if no usable score. Without this a TOEFL 100
+    would parse as '100' and clear every IELTS requirement in the catalogue."""
+    raw = (student.language_test_score or "").strip()
+    if not raw:
+        return None
     try:
-        return Decimal(raw.strip())
+        value = Decimal(raw)
     except Exception:
         return None
+    # Legacy rows may have a score but no test type — read those as IELTS.
+    test = student.language_test or Student.LanguageTest.IELTS
+    if test == Student.LanguageTest.IELTS:
+        return value
+    for threshold, band in _CONCORDANCE.get(test, []):
+        if value >= threshold:
+            return band
+    return Decimal("0")  # took a test but scored below its lowest band
 
 
 def _score_program(student, program, ielts):
@@ -76,7 +115,7 @@ def match_programs_for_student(student_id):
     else:
         programs = programs.exclude(tuition_fee_eur__gt=student.budget_eur_per_year)
 
-    ielts = _parse_ielts(student.language_test_score)
+    ielts = _ielts_equivalent(student)
 
     with transaction.atomic():
         Match.objects.filter(student=student).delete()

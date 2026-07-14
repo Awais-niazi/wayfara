@@ -4,8 +4,20 @@ from rest_framework import serializers
 from wayfara.serializers import StrictModelSerializer, StrictSerializer
 
 from .models import Student, Task
+from .validators import validate_academic
 
 User = get_user_model()
+
+# The academic fields whose values are validated against each other
+# (grade value vs scale, test score vs test type, budget range).
+ACADEMIC_FIELDS = (
+    "grade_scale",
+    "grades",
+    "language_test_status",
+    "language_test",
+    "language_test_score",
+    "budget_eur_per_year",
+)
 
 
 class TaskSerializer(StrictModelSerializer):
@@ -34,8 +46,10 @@ class OnboardingSerializer(StrictModelSerializer):
             "email",
             "study_level",
             "field_of_study",
+            "grade_scale",
             "grades",
             "language_test_status",
+            "language_test",
             "language_test_score",
             "budget_eur_per_year",
             "intake",
@@ -46,6 +60,11 @@ class OnboardingSerializer(StrictModelSerializer):
             "study_level": {"required": True},
             "field_of_study": {"required": True},
         }
+
+    def validate(self, attrs):
+        # Everything is present on create, so validate the payload directly.
+        validate_academic(attrs)
+        return attrs
 
     def create(self, validated_data):
         email = validated_data.pop("email")
@@ -74,6 +93,19 @@ class ProfileSerializer(StrictModelSerializer):
     )
     tier = serializers.CharField(source="user.tier", read_only=True)
 
+    def validate(self, attrs):
+        # PATCH is partial: validate each academic field against its effective
+        # value (the incoming one, or the stored one it isn't changing), so a
+        # lone `grades` edit is still checked against the saved `grade_scale`.
+        effective = {}
+        for field in ACADEMIC_FIELDS:
+            if field in attrs:
+                effective[field] = attrs[field]
+            elif self.instance is not None:
+                effective[field] = getattr(self.instance, field)
+        validate_academic(effective)
+        return attrs
+
     def update(self, instance, validated_data):
         # Writable user.* fields arrive nested under "user" via their source.
         user_data = validated_data.pop("user", None)
@@ -96,8 +128,10 @@ class ProfileSerializer(StrictModelSerializer):
             "home_city",
             "study_level",
             "field_of_study",
+            "grade_scale",
             "grades",
             "language_test_status",
+            "language_test",
             "language_test_score",
             "budget_eur_per_year",
             "intake",

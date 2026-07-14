@@ -41,6 +41,8 @@ export interface Me {
 
 export type StudyLevel = "undergraduate" | "masters";
 export type LanguageTestStatus = "not_taken" | "booked" | "taken";
+export type LanguageTest = "ielts" | "toefl" | "pte" | "duolingo";
+export type GradeScale = "gpa_4" | "percentage" | "letter";
 export type Intake = "september" | "january";
 export type Stage = "exploring" | "ready" | "applied";
 
@@ -48,8 +50,10 @@ export interface OnboardingForm {
   email: string;
   study_level: StudyLevel;
   field_of_study: string;
+  grade_scale?: GradeScale;
   grades?: string;
   language_test_status?: LanguageTestStatus;
+  language_test?: LanguageTest;
   language_test_score?: string;
   budget_eur_per_year?: number;
   intake?: Intake;
@@ -68,8 +72,10 @@ export interface Profile {
   home_city: string;
   study_level: StudyLevel | "";
   field_of_study: string;
+  grade_scale: GradeScale | "";
   grades: string;
   language_test_status: LanguageTestStatus | "";
+  language_test: LanguageTest | "";
   language_test_score: string;
   budget_eur_per_year: number | null;
   intake: Intake | "";

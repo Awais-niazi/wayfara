@@ -122,6 +122,18 @@ class ProfileTests(APITestCase):
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("is_admin", resp.data)
 
+    def test_editing_grade_alone_validates_against_stored_scale(self):
+        # Partial PATCH: the new grade is checked against the scale already saved,
+        # not a scale in this request.
+        Student.objects.create(user=self.user, grade_scale="gpa_4", grades="3.4")
+        self.client.force_authenticate(self.user)
+        resp = self.client.patch(reverse("profile"), {"grades": "7.2"})
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("grades", resp.data)
+        # A valid value for the stored scale still saves.
+        resp = self.client.patch(reverse("profile"), {"grades": "3.9"})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+
 
 class SchemaRelationTests(APITestCase):
     """Smoke-test the cross-app relationships in the domain schema."""

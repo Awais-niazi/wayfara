@@ -27,7 +27,9 @@ import {
   firstErrorMessage,
   getProfile,
   updateProfile,
+  type GradeScale,
   type Intake,
+  type LanguageTest,
   type LanguageTestStatus,
   type Profile,
   type Stage,
@@ -36,10 +38,17 @@ import {
 import {
   EDUCATION_LEVELS,
   FIELDS,
+  GRADE_INPUT,
+  GRADE_SCALES,
   INTAKES,
   INTAKE_YEARS,
+  LANGUAGE_TESTS,
   STAGES,
+  TEST_PLACEHOLDER,
   TEST_STATUSES,
+  budgetError,
+  gradeError,
+  testScoreError,
 } from "../lib/profileOptions";
 import { useAuth } from "../context/AuthContext";
 import type { RootStackParamList } from "../navigation/types";
@@ -55,8 +64,10 @@ interface FormState {
   nationality: string;
   study_level: StudyLevel | "";
   field_of_study: string;
+  grade_scale: GradeScale | "";
   grades: string;
   language_test_status: LanguageTestStatus | "";
+  language_test: LanguageTest | "";
   language_test_score: string;
   budget: string; // numeric text input; "" = unset
   intake: Intake | "";
@@ -73,8 +84,10 @@ function toForm(p: Profile): FormState {
     nationality: p.nationality,
     study_level: p.study_level,
     field_of_study: p.field_of_study,
+    grade_scale: p.grade_scale,
     grades: p.grades,
     language_test_status: p.language_test_status,
+    language_test: p.language_test,
     language_test_score: p.language_test_score,
     budget: p.budget_eur_per_year === null ? "" : String(p.budget_eur_per_year),
     intake: p.intake,
@@ -93,9 +106,11 @@ function diff(form: FormState, base: FormState): Partial<Profile> {
   if (form.nationality !== base.nationality) patch.nationality = form.nationality.trim();
   if (form.study_level !== base.study_level) patch.study_level = form.study_level;
   if (form.field_of_study !== base.field_of_study) patch.field_of_study = form.field_of_study;
+  if (form.grade_scale !== base.grade_scale) patch.grade_scale = form.grade_scale;
   if (form.grades !== base.grades) patch.grades = form.grades.trim();
   if (form.language_test_status !== base.language_test_status)
     patch.language_test_status = form.language_test_status;
+  if (form.language_test !== base.language_test) patch.language_test = form.language_test;
   if (form.language_test_score !== base.language_test_score)
     patch.language_test_score = form.language_test_score.trim();
   if (form.budget !== base.budget)
@@ -143,8 +158,14 @@ export default function ProfileScreen({ navigation }: Props) {
   );
   const dirty = Object.keys(patch).length > 0;
 
+  // Inline semantic errors (mirror the server); block Save while any is present.
+  const gradesErr = form ? gradeError(form.grade_scale, form.grades) : null;
+  const scoreErr = form ? testScoreError(form.language_test, form.language_test_score) : null;
+  const budgetErr = form ? budgetError(form.budget) : null;
+  const hasErrors = !!(gradesErr || scoreErr || budgetErr);
+
   const onSave = async () => {
-    if (!dirty || saving) return;
+    if (!dirty || saving || hasErrors) return;
     setSaving(true);
     setSaveError(null);
     try {
@@ -284,33 +305,60 @@ export default function ProfileScreen({ navigation }: Props) {
               value={form.field_of_study}
               onChange={(v) => set("field_of_study", v)}
             />
-            <Field
-              label="Grades"
-              value={form.grades}
-              onChangeText={(t) => set("grades", t)}
-              placeholder="3.4 GPA / 85% / AAB"
-            />
             <ChoiceRow
-              label="English test (IELTS/TOEFL)"
+              label="Grade type"
+              options={GRADE_SCALES}
+              value={form.grade_scale}
+              onChange={(v) => {
+                set("grade_scale", v);
+                set("grades", "");
+              }}
+            />
+            {form.grade_scale !== "" && (
+              <Field
+                label="Your grade"
+                value={form.grades}
+                onChangeText={(t) => set("grades", t)}
+                placeholder={GRADE_INPUT[form.grade_scale].placeholder}
+                keyboardType={GRADE_INPUT[form.grade_scale].keyboardType}
+                autoCapitalize={form.grade_scale === "letter" ? "characters" : "none"}
+                maxLength={GRADE_INPUT[form.grade_scale].maxLength}
+                error={gradesErr}
+                hint={GRADE_INPUT[form.grade_scale].hint}
+              />
+            )}
+            <ChoiceRow
+              label="English test"
               options={TEST_STATUSES}
               value={form.language_test_status}
               onChange={(v) => set("language_test_status", v)}
             />
             {form.language_test_status === "taken" && (
+              <ChoiceRow
+                label="Which test?"
+                options={LANGUAGE_TESTS}
+                value={form.language_test}
+                onChange={(v) => set("language_test", v)}
+              />
+            )}
+            {form.language_test_status === "taken" && form.language_test !== "" && (
               <Field
-                label="Test score"
+                label="Your score"
                 value={form.language_test_score}
                 onChangeText={(t) => set("language_test_score", t)}
-                placeholder="7.0"
+                placeholder={TEST_PLACEHOLDER[form.language_test]}
                 keyboardType="decimal-pad"
+                error={scoreErr}
               />
             )}
             <Field
               label="Budget per year (EUR)"
               value={form.budget}
-              onChangeText={(t) => set("budget", t)}
+              onChangeText={(t) => set("budget", t.replace(/[^0-9]/g, ""))}
               placeholder="18000"
               keyboardType="number-pad"
+              maxLength={6}
+              error={budgetErr}
             />
             <ChoiceRow
               label="Target intake"

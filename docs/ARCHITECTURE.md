@@ -336,7 +336,10 @@ to iterate and unit-test.
   rating. Signals include IELTS headroom over `min_ielts_score`, acceptance-rate
   selectivity, intake match, and tuition-free bonus. Produces `Match` rows
   (distinct from `Application`, which is user *intent*). Served best-first by
-  `/api/v1/matches/`.
+  `/api/v1/matches/`. The student's English score is normalised to an **IELTS
+  band via a concordance table** (`_ielts_equivalent`) before it's compared to
+  `min_ielts_score` — without that, a TOEFL 100 would parse as "100" and clear
+  every requirement in the catalogue.
 - **Timeline engine** (`students/services.py`). Instantiates admin-editable
   `TaskTemplate`s into per-student `Task`s with concrete `due_date`s computed
   **backwards from anchors** (intake start, application/offer deadlines, visa
@@ -434,6 +437,13 @@ All under `/api/v1/` (3.12). Auth required unless marked **(anon)**.
   is parameterized ORM) — so these caps are defense-in-depth, not the primary
   control. The per-inbox OTP throttle also no longer 500s on a non-dict JSON
   body (it now returns 400).
+- **Semantic validation (July 2026).** Beyond format/length, the academic
+  fields are checked for real-world sanity in `students/validators.py` (shared
+  by onboarding + profile): a test score must be in range for its test type
+  (IELTS 0–9 half-steps, TOEFL 0–120, PTE 10–90, Duolingo 10–160), a grade must
+  fit its declared scale (GPA 0.5–4, % 0–100, letter A–E±), and a budget must be
+  plausible (blank/0 = tuition-free, else €1k–€100k). The mobile wizard mirrors
+  these client-side for instant feedback; the serializer is the authority.
 - **OTP codes are hashed at rest (July 2026).** `EmailOTP` stores only a salted
   hash (`code_hash`, via `make_password`); the plaintext lives just long enough
   to email it, on a transient `plaintext_code` attribute that is never
@@ -600,8 +610,10 @@ Consolidated, so nothing hides in prose:
    `localhost`, not the port.
 3. **NativeWind v5 is preview software.** Works today; fallback is pinning a
    known-good nightly. Also the reason SDK 57 may outrun public Expo Go.
-4. **`grades` isn't yet a matching signal.** Collected in onboarding, stored, but
-   the scoring heuristic doesn't weight it. Product decision pending.
+4. **`grades` isn't yet a matching signal.** Now captured *structured* (a
+   `grade_scale` + a value validated against it — GPA 0.5–4, percentage 0–100,
+   or an O/A-Level letter), so it's ready to weight, but the scoring heuristic
+   still doesn't use it. Product decision pending on how.
 5. **Field-of-study taxonomy is hardcoded in the app.** The onboarding form's
    field chips (IT/Business/Design/Engineering) must match the Opintopolku
    catalogue's values; a `/api/v1/fields/` endpoint would remove the duplication.

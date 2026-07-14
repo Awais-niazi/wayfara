@@ -20,6 +20,17 @@ class Student(models.Model):
         BOOKED = "booked", "Test booked"
         TAKEN = "taken", "Score available"
 
+    class LanguageTest(models.TextChoices):
+        IELTS = "ielts", "IELTS"
+        TOEFL = "toefl", "TOEFL iBT"
+        PTE = "pte", "PTE Academic"
+        DUOLINGO = "duolingo", "Duolingo English Test"
+
+    class GradeScale(models.TextChoices):
+        GPA_4 = "gpa_4", "GPA (out of 4)"
+        PERCENTAGE = "percentage", "Percentage"
+        LETTER = "letter", "Letter grade (O/A-Level)"
+
     class Intake(models.TextChoices):
         SEPTEMBER = "september", "September"
         JANUARY = "january", "January"
@@ -50,11 +61,19 @@ class Student(models.Model):
     # Onboarding profile (Phase 0)
     study_level = models.CharField(max_length=20, choices=StudyLevel.choices, blank=True)
     field_of_study = models.CharField(max_length=100, blank=True)
+    grade_scale = models.CharField(
+        max_length=20, choices=GradeScale.choices, blank=True,
+        help_text="Which scale `grades` is on — drives value validation",
+    )
     grades = models.CharField(
-        max_length=100, blank=True, help_text="GPA, percentage, or A-Level grades as entered"
+        max_length=100, blank=True, help_text="Grade value, validated against grade_scale"
     )
     language_test_status = models.CharField(
         max_length=20, choices=LanguageTestStatus.choices, blank=True
+    )
+    language_test = models.CharField(
+        max_length=20, choices=LanguageTest.choices, blank=True,
+        help_text="Which English test `language_test_score` is from",
     )
     language_test_score = models.CharField(max_length=20, blank=True)
     budget_eur_per_year = models.PositiveIntegerField(
