@@ -22,7 +22,14 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 
 import { colors, fonts, radius } from "../theme";
 import { ChevronLeftIcon, ChevronRightIcon, CheckIcon, GlobeIcon } from "../components/icons";
-import { getUniversity, type CatalogProgram, type UniversityDetail } from "../lib/api";
+import {
+  createApplication,
+  firstErrorMessage,
+  getApplications,
+  getUniversity,
+  type CatalogProgram,
+  type UniversityDetail,
+} from "../lib/api";
 import type { RootStackParamList } from "../navigation/types";
 
 type Props = NativeStackScreenProps<RootStackParamList, "MatchDetail">;
@@ -83,6 +90,10 @@ export default function MatchDetailScreen({ navigation, route }: Props) {
   const [uni, setUni] = useState<UniversityDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  // The application for THIS programme, if the student already started one.
+  const [applicationId, setApplicationId] = useState<number | null>(null);
+  const [applying, setApplying] = useState(false);
+  const [applyError, setApplyError] = useState<string | null>(null);
 
   const load = () => {
     setLoading(true);
@@ -91,9 +102,35 @@ export default function MatchDetailScreen({ navigation, route }: Props) {
       .then(setUni)
       .catch(() => setError(true))
       .finally(() => setLoading(false));
+    // Additive: is there already an application for this programme?
+    getApplications()
+      .then((apps) => {
+        const existing = apps.find((a) => a.program === match.program);
+        setApplicationId(existing ? existing.id : null);
+      })
+      .catch(() => {});
   };
 
   useEffect(load, [match.university_id]);
+
+  const onApply = async () => {
+    if (applying) return;
+    if (applicationId !== null) {
+      navigation.navigate("ApplicationDetail", { id: applicationId });
+      return;
+    }
+    setApplying(true);
+    setApplyError(null);
+    try {
+      const application = await createApplication(match.program);
+      setApplicationId(application.id);
+      navigation.navigate("ApplicationDetail", { id: application.id });
+    } catch (err) {
+      setApplyError(firstErrorMessage(err));
+    } finally {
+      setApplying(false);
+    }
+  };
 
   // Catalog record of the matched programme — carries fields the match doesn't.
   const catalogProgram = useMemo(
@@ -245,19 +282,42 @@ export default function MatchDetailScreen({ navigation, route }: Props) {
           </Pressable>
         )}
         <Pressable
+          onPress={onApply}
           accessibilityRole="button"
+          accessibilityLabel={
+            applicationId !== null ? "View your application" : "Add to my applications"
+          }
           style={({ pressed }) => [styles.ctaBtn, pressed && styles.pressed]}
         >
-          <Text style={styles.ctaBtnText}>Ask advisor about this uni</Text>
+          <Text style={styles.ctaBtnText}>
+            {applying
+              ? "Starting…"
+              : applicationId !== null
+                ? "View application"
+                : "Add to my applications"}
+          </Text>
           <ChevronRightIcon size={18} color="#fff" />
         </Pressable>
       </SafeAreaView>
+      {applyError !== null && (
+        <View style={styles.applyErrorBar}>
+          <Text style={styles.applyErrorText}>{applyError}</Text>
+        </View>
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.canvas },
+  applyErrorBar: {
+    backgroundColor: "#FCEBE7",
+    borderTopWidth: 1,
+    borderTopColor: "#F3C4B8",
+    paddingVertical: 8,
+    paddingHorizontal: 20,
+  },
+  applyErrorText: { fontFamily: fonts.bodySemi, fontSize: 12.5, color: "#B3402A", textAlign: "center" },
   scrollBody: { paddingBottom: 24 },
   pad: { paddingHorizontal: 20 },
   pressed: { opacity: 0.7 },

@@ -491,6 +491,8 @@ no longer exposes any anonymous auth endpoints.
 | `GET /tasks/` (`?phase=N`) · `POST /tasks/<id>/status/` | Journey plan + status changes |
 | `GET /universities/` · `GET /universities/<id>/` | Catalogue (cached, public) |
 | `GET /notifications/` · `POST /notifications/read/` | In-app inbox (paged, unread count) + mark-read |
+| `POST\|GET /applications/` · `GET\|PATCH /applications/<id>/` · `POST .../status/` | Application workspace: create from match, checklist, SOP, status ladder (milestones notify) |
+| `POST\|GET /documents/` · `DELETE /documents/<id>/` · `GET .../download/` | Student document pool: capped multipart upload, owner-scoped signed-URL download |
 | `advisor/*`, `my-advisor/messages/` | Advisor console + the student side of the thread (Premium-gated) |
 
 > `GET /healthz` (bare path, outside `/api/v1/`, unauthenticated) is the only
@@ -664,7 +666,7 @@ Awais's mandated launch-readiness checklist. Status as of this document:
 |---|---|---|---|
 | 1 | Frontend foundations | 🟢 | Nav, Supabase-backed auth state, typed API client, onboarding spine, design system |
 | 2 | APIs & backend logic | 🟢 | 7 apps; matching + timeline engines; advisor; scraper; versioned `/api/v1/`; strict input validation on every serializer |
-| 3 | Database & storage | 🟡 | Postgres :5433 + migrations done; **media still local disk** (needs S3/R2 + signed access) |
+| 3 | Database & storage | 🟡 | Postgres :5433 + migrations done; R2 storage layer built (signed URLs, prod fail-fast) — **awaiting bucket/keys**; advisor audio still local |
 | 4 | Auth & permissions | 🟢 | Supabase identity (password + OTP fallback, ES256/JWKS-verified); roles; row-level scoping |
 | 5 | Hosting & deployment | 🔴 | Not started (Railway planned; env-driven config already prepped); `/healthz` ready for the platform health check |
 | 6 | Cloud & compute | 🟡 | Celery/Redis/Beat designed & correct; runs only locally |
@@ -689,9 +691,12 @@ beyond the onboarding spine).
 
 Consolidated, so nothing hides in prose:
 
-1. **Media on local disk (Layer 3).** `Document.file` and advisor audio write to
-   `media/`. The most sensitive payload (passports, transcripts) needs S3/R2 +
-   signed URLs before any real upload feature. **Highest quiet risk.**
+1. **~~Media on local disk (Layer 3)~~ — code-side DONE (July 2026).**
+   Document storage now runs on **Cloudflare R2** (django-storages, private
+   bucket, 10-min signed URLs, authorize-then-serve) with a local-disk dev
+   fallback; production **refuses to boot** without R2 keys. Remaining: the R2
+   bucket/keys themselves (user action) and moving advisor audio to the same
+   storage path.
 2. **Production API URL is deploy-time.** `app.config.js` defaults `apiUrl` to
    `localhost:8010`. A shipped build **must** get `WAYFARA_API_URL` set to the
    real HTTPS host or every API call fails on-device — this is about the

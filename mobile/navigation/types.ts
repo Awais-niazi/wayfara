@@ -18,4 +18,6 @@ export type RootStackParamList = {
   Matches: { matches: Match[] };
   Profile: undefined;
   Notifications: undefined;
+  Applications: undefined;
+  ApplicationDetail: { id: number };
 };

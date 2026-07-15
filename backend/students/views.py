@@ -1,15 +1,20 @@
+from django.conf import settings
 from django.db import transaction
+from django.http import FileResponse, Http404, HttpResponseRedirect
 from django.utils import timezone
 from rest_framework import generics, serializers, status
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from applications.tasks import match_programs_task
 
-from .models import Student, Task
+from .models import Document, Student, Task
 from .tasks import generate_timeline_task
 from .serializers import (
+    DocumentSerializer,
+    DocumentUploadSerializer,
     OnboardingSerializer,
     ProfileSerializer,
     TaskSerializer,
@@ -118,3 +123,65 @@ class TaskStatusView(APIView):
         task.completed_at = timezone.now() if task.status == Task.Status.COMPLETED else None
         task.save(update_fields=["status", "completed_at", "updated_at"])
         return Response(TaskSerializer(task).data)
+
+
+# ─── Documents ────────────────────────────────────────────────────────────────
+
+
+class DocumentListCreateView(generics.ListCreateAPIView):
+    """The student's document pool (a passport works for every application).
+
+    Upload is multipart; caps and type checks live in the serializer. Newest
+    document per type is what application checklists count.
+    """
+
+    parser_classes = [MultiPartParser, FormParser]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "doc_upload"
+
+    def get_serializer_class(self):
+        return (
+            DocumentUploadSerializer
+            if self.request.method == "POST"
+            else DocumentSerializer
+        )
+
+    def get_queryset(self):
+        return Document.objects.owned_by(self.request.user)
+
+    def create(self, request, *args, **kwargs):
+        Student.objects.get_or_create(user=request.user)
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        document = serializer.save()
+        return Response(
+            DocumentSerializer(document).data, status=status.HTTP_201_CREATED
+        )
+
+
+class DocumentDetailView(generics.DestroyAPIView):
+    """Delete one of the student's own documents (file cleaned up too)."""
+
+    def get_queryset(self):
+        return Document.objects.owned_by(self.request.user)
+
+    def perform_destroy(self, instance):
+        instance.file.delete(save=False)  # remove the blob, not just the row
+        instance.delete()
+
+
+class DocumentDownloadView(APIView):
+    """Authorize-then-serve for the student's own document.
+
+    With R2 configured the response is a redirect to a short-lived signed URL
+    (the bucket is private; the URL dies in 10 minutes). On local-dev storage
+    it streams the file directly.
+    """
+
+    def get(self, request, pk):
+        document = Document.objects.owned_by(request.user).filter(pk=pk).first()
+        if document is None or not document.file:
+            raise Http404
+        if settings.R2_CONFIGURED and not settings.TESTING:
+            return HttpResponseRedirect(document.file.url)  # signed, expiring
+        return FileResponse(document.file.open("rb"), as_attachment=True)

@@ -1,8 +1,8 @@
 from rest_framework import serializers
 
-from wayfara.serializers import StrictModelSerializer
+from wayfara.serializers import StrictModelSerializer, StrictSerializer
 
-from .models import Match
+from .models import Application, Match
 
 
 class MatchSerializer(StrictModelSerializer):
@@ -62,3 +62,98 @@ class MatchSerializer(StrictModelSerializer):
     def get_data_verified(self, obj):
         profile = self._profile(obj)
         return bool(profile and profile.operational_verified)
+
+
+class ApplicationCreateSerializer(StrictModelSerializer):
+    """POST /applications/ — start an application for one programme."""
+
+    class Meta:
+        model = Application
+        fields = ["program"]
+
+    def validate_program(self, program):
+        if not program.is_active or not program.university.is_active:
+            raise serializers.ValidationError("This programme is no longer open.")
+        student = getattr(self.context["request"].user, "student", None)
+        if student and Application.objects.filter(student=student, program=program).exists():
+            raise serializers.ValidationError(
+                "You already have an application for this programme."
+            )
+        return program
+
+    def create(self, validated_data):
+        student = self.context["request"].user.student
+        program = validated_data["program"]
+        # Carry the matching engine's realistic-chances read onto the application.
+        match = Match.objects.filter(student=student, program=program).first()
+        return Application.objects.create(
+            student=student, program=program, fit=match.fit if match else ""
+        )
+
+
+class ApplicationListSerializer(StrictModelSerializer):
+    program_name = serializers.CharField(source="program.name", read_only=True)
+    university = serializers.CharField(source="program.university.name", read_only=True)
+    university_id = serializers.IntegerField(source="program.university_id", read_only=True)
+    city = serializers.CharField(source="program.university.city", read_only=True)
+    degree_level = serializers.CharField(source="program.degree_level", read_only=True)
+    application_deadline = serializers.DateField(
+        source="program.application_deadline", read_only=True
+    )
+    tuition_fee_eur = serializers.DecimalField(
+        source="program.tuition_fee_eur", max_digits=8, decimal_places=2, read_only=True
+    )
+    docs_ready = serializers.SerializerMethodField()
+    docs_total = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Application
+        fields = [
+            "id", "status", "fit", "priority",
+            "program", "program_name", "university", "university_id", "city",
+            "degree_level", "application_deadline", "tuition_fee_eur",
+            "docs_ready", "docs_total", "submitted_at", "created_at",
+        ]
+        read_only_fields = fields
+
+    def _checklist(self, obj):
+        from .services import get_checklist
+
+        cache = self.context.setdefault("_checklists", {})
+        if obj.pk not in cache:
+            cache[obj.pk] = get_checklist(
+                obj, student_documents=self.context.get("student_documents")
+            )
+        return cache[obj.pk]
+
+    def get_docs_ready(self, obj):
+        return sum(1 for row in self._checklist(obj) if row["required"] and row["fulfilled"])
+
+    def get_docs_total(self, obj):
+        return sum(1 for row in self._checklist(obj) if row["required"])
+
+
+class ApplicationDetailSerializer(ApplicationListSerializer):
+    checklist = serializers.SerializerMethodField()
+
+    class Meta(ApplicationListSerializer.Meta):
+        fields = ApplicationListSerializer.Meta.fields + [
+            "checklist", "motivation_letter", "studyinfo_reference", "notes",
+            "decision_at",
+        ]
+        read_only_fields = fields
+
+    def get_checklist(self, obj):
+        return self._checklist(obj)
+
+
+class ApplicationUpdateSerializer(StrictModelSerializer):
+    """PATCH — the fields the student edits in the workspace."""
+
+    class Meta:
+        model = Application
+        fields = ["motivation_letter", "notes", "priority", "studyinfo_reference"]
+
+
+class ApplicationStatusSerializer(StrictSerializer):
+    status = serializers.ChoiceField(choices=Application.Status.choices)

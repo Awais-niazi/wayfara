@@ -109,6 +109,7 @@ class Document(models.Model):
         ACCOMMODATION_PROOF = "accommodation_proof", "Proof of accommodation"
         CV = "cv", "CV"
         MOTIVATION_LETTER = "motivation_letter", "Motivation letter"
+        RECOMMENDATION_LETTER = "recommendation_letter", "Letter of recommendation"
         OTHER = "other", "Other"
 
     class Status(models.TextChoices):

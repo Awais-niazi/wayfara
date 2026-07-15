@@ -185,3 +185,115 @@ def match_programs_for_student(student_id):
             for score, fit in [_score_program(student, p, ielts, academic_points)]
         )
     return Match.objects.filter(student=student).count()
+
+
+# ─── Application workspace ────────────────────────────────────────────────────
+
+# The standard Finnish master's document set — every programme's checklist
+# unless the KB team has curated a program-specific RequiredDocument list
+# (universities.RequiredDocument; replacement semantics, not merge).
+BASELINE_CHECKLIST = (
+    # (doc_type, required, notes)
+    ("transcript", True, "Complete academic transcript, in English"),
+    ("degree_certificate", True, "Degree/school certificate (attested copy)"),
+    ("language_certificate", True, "IELTS/TOEFL/PTE result — check the programme minimum"),
+    ("passport", True, "Photo page; must be valid well past the intake"),
+    ("cv", True, "Europass format is the Finnish convention"),
+    ("motivation_letter", True, "Write it in the app — or upload your own"),
+    ("recommendation_letter", False, "1–2 academic referees; some programmes require them"),
+)
+
+# Status transitions that are milestones worth telling the student about.
+_MILESTONE_COPY = {
+    "submitted": ("Application submitted 🚀", "{program} — {university}. Fingers crossed; track decisions here."),
+    "offer_received": ("Offer received 🎉", "{university} offered you a place in {program}!"),
+    "waitlisted": ("Waitlisted", "{university} put you on the waitlist for {program} — places do open up."),
+    "rejected": ("Decision update", "{university} declined {program}. Your other applications are still live."),
+    "place_confirmed": ("Study place confirmed 🇫🇮", "{program} at {university} is yours. Next stop: residence permit."),
+}
+
+
+def get_checklist(application, student_documents=None):
+    """The document checklist for one application: the programme's curated
+    RequiredDocument list if any, else the baseline — each entry matched
+    against the student's uploaded documents (newest per doc_type wins).
+    The motivation letter is also satisfied by in-app text."""
+    from students.models import Document
+
+    program = application.program
+    curated = list(program.required_documents.all())
+    if curated:
+        rows = [(r.doc_type, r.required, r.notes) for r in curated]
+    else:
+        rows = list(BASELINE_CHECKLIST)
+
+    if student_documents is None:
+        student_documents = list(application.student.documents.all())
+    newest_by_type = {}
+    for doc in sorted(student_documents, key=lambda d: d.uploaded_at):
+        newest_by_type[doc.doc_type] = doc
+
+    labels = dict(Document.DocType.choices)
+    checklist = []
+    for doc_type, required, notes in rows:
+        doc = newest_by_type.get(doc_type)
+        fulfilled = doc is not None
+        if not fulfilled and doc_type == Document.DocType.MOTIVATION_LETTER:
+            fulfilled = bool(application.motivation_letter.strip())
+        checklist.append(
+            {
+                "doc_type": doc_type,
+                "label": labels.get(doc_type, doc_type),
+                "required": required,
+                "notes": notes,
+                "fulfilled": fulfilled,
+                "document_id": doc.pk if doc else None,
+            }
+        )
+    return checklist
+
+
+def transition_application(application, new_status):
+    """Move an application along its ladder, stamping timestamps and firing
+    milestone notifications through the platform spine. Returns the saved
+    application; raises ValueError for a no-op transition."""
+    from django.utils import timezone as tz
+
+    from notifications.models import Notification
+    from notifications.services import notify
+
+    if new_status == application.status:
+        raise ValueError("Application is already in that status.")
+    if new_status == application.Status.SHORTLISTED:
+        raise ValueError("An application can't go back to shortlisted.")
+
+    application.status = new_status
+    update = ["status", "updated_at"]
+    now = tz.now()
+    if new_status == application.Status.SUBMITTED and application.submitted_at is None:
+        application.submitted_at = now
+        update.append("submitted_at")
+    if new_status in (
+        application.Status.OFFER_RECEIVED,
+        application.Status.WAITLISTED,
+        application.Status.REJECTED,
+    ) and application.decision_at is None:
+        application.decision_at = now
+        update.append("decision_at")
+    application.save(update_fields=update)
+
+    copy = _MILESTONE_COPY.get(new_status)
+    if copy:
+        title, body = copy
+        context = {
+            "program": application.program.name,
+            "university": application.program.university.name,
+        }
+        notify(
+            application.student.user,
+            category=Notification.Category.APPLICATION,
+            title=title.format(**context),
+            body=body.format(**context),
+            data={"type": "application", "application_id": application.pk},
+        )
+    return application

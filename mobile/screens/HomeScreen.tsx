@@ -72,7 +72,7 @@ const QUICK_ACTIONS: QuickAction[] = [
 const TABS = [
   { key: "home", label: "Home", Icon: HomeIcon, active: true, target: null },
   { key: "explore", label: "Explore", Icon: CompassIcon, active: false, target: "matches" },
-  { key: "apps", label: "Apps", Icon: AppsIcon, active: false, target: null },
+  { key: "apps", label: "Apps", Icon: AppsIcon, active: false, target: "applications" },
   { key: "chat", label: "Chat", Icon: ChatIcon, active: false, target: null },
   { key: "profile", label: "Profile", Icon: ProfileIcon, active: false, target: "profile" },
 ] as const;
@@ -468,6 +468,7 @@ export default function HomeScreen({ navigation }: Props) {
             const onPress = () => {
               if (target === "matches") navigation.navigate("Matches", { matches });
               if (target === "profile") navigation.navigate("Profile");
+              if (target === "applications") navigation.navigate("Applications");
             };
             return (
               <Pressable

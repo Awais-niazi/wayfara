@@ -1,10 +1,19 @@
 from django.contrib import admin
 
-from .models import Campus, Program, University, UniversityProfile
+from .models import Campus, Program, RequiredDocument, University, UniversityProfile
 
 
 class CampusInline(admin.TabularInline):
     model = Campus
+    extra = 0
+
+
+class RequiredDocumentInline(admin.TabularInline):
+    """Curate the programme's complete document checklist here. Any rows =
+    this list REPLACES the baseline; no rows = students see the standard
+    Finnish master's set."""
+
+    model = RequiredDocument
     extra = 0
 
 
@@ -40,3 +49,4 @@ class ProgramAdmin(admin.ModelAdmin):
     ]
     list_filter = ["degree_level", "intake", "field_of_study", "is_active"]
     search_fields = ["name", "university__name"]
+    inlines = [RequiredDocumentInline]

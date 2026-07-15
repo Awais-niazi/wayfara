@@ -148,3 +148,46 @@ class Program(models.Model):
 
     def __str__(self):
         return f"{self.name} ({self.get_degree_level_display()}) — {self.university.name}"
+
+
+# Lazy (callable) choices so this module never imports students.models at
+# load time — keeps the model-import graph one-directional.
+def _doc_type_choices():
+    from students.models import Document
+
+    return Document.DocType.choices
+
+
+class RequiredDocument(models.Model):
+    """One document a specific program demands from applicants.
+
+    Curated in admin (inline on Program) for the programs the KB team has
+    verified. Semantics are REPLACEMENT, not merge: a program with any rows
+    defines its complete checklist; programs without rows fall back to the
+    standard Finnish master's baseline (applications/services.py). The
+    doc_type choices live on students.Document so the checklist and the
+    student's uploads always speak the same vocabulary.
+    """
+
+    program = models.ForeignKey(
+        Program, on_delete=models.CASCADE, related_name="required_documents"
+    )
+    doc_type = models.CharField(max_length=30, choices=_doc_type_choices)
+    required = models.BooleanField(
+        default=True, help_text="Unticked = optional but recommended"
+    )
+    notes = models.CharField(
+        max_length=200, blank=True,
+        help_text='Program-specific detail, e.g. "IELTS Academic only, min 6.5"',
+    )
+
+    class Meta:
+        ordering = ["program", "-required", "doc_type"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["program", "doc_type"], name="unique_required_doc_per_program"
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.program}: {self.doc_type}{'' if self.required else ' (optional)'}"

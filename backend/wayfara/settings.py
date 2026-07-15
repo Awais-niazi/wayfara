@@ -135,6 +135,7 @@ REST_FRAMEWORK = {
         "anon": "100/hour",
         "user": "1000/hour",
         "onboarding": "10/hour",
+        "doc_upload": "60/hour",  # a full application set is ~7 files
     },
 }
 
@@ -202,7 +203,48 @@ USE_TZ = True
 STATIC_URL = "static/"
 
 MEDIA_URL = "media/"
-MEDIA_ROOT = BASE_DIR / "media"  # local dev only; S3/R2 replaces this in production
+MEDIA_ROOT = BASE_DIR / "media"  # local dev fallback when R2 is unconfigured
+
+# ─── Document storage (Cloudflare R2) ────────────────────────────────────────
+# Student documents are the most sensitive payload in the product (passports,
+# transcripts, bank statements). With R2 keys set, uploads go to a PRIVATE
+# S3-compatible bucket and every read is a short-lived signed URL; nothing is
+# ever publicly addressable. Unset -> local media/ so a fresh clone still runs.
+R2_ACCOUNT_ID = os.environ.get("R2_ACCOUNT_ID", "")
+R2_ACCESS_KEY_ID = os.environ.get("R2_ACCESS_KEY_ID", "")
+R2_SECRET_ACCESS_KEY = os.environ.get("R2_SECRET_ACCESS_KEY", "")
+R2_BUCKET = os.environ.get("R2_BUCKET", "")
+R2_CONFIGURED = bool(
+    R2_ACCOUNT_ID and R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY and R2_BUCKET
+)
+
+if R2_CONFIGURED and not TESTING:
+    STORAGES = {
+        "default": {
+            "BACKEND": "storages.backends.s3.S3Storage",
+            "OPTIONS": {
+                "bucket_name": R2_BUCKET,
+                "endpoint_url": f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com",
+                "access_key": R2_ACCESS_KEY_ID,
+                "secret_key": R2_SECRET_ACCESS_KEY,
+                "region_name": "auto",
+                "default_acl": "private",
+                "querystring_auth": True,      # every URL is signed…
+                "querystring_expire": 600,     # …and dies after 10 minutes
+                "file_overwrite": False,
+                "signature_version": "s3v4",
+            },
+        },
+        "staticfiles": {
+            "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"
+        },
+    }
+elif not DEBUG and not TESTING:
+    raise ImproperlyConfigured(
+        "R2 storage must be configured in production (R2_ACCOUNT_ID, "
+        "R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET) — student "
+        "documents must never land on local disk."
+    )
 
 # Background tasks — Celery + Redis. Tasks are thin invokers; business logic
 # stays in service functions. Redis db index 5 keeps Wayfara out of any other

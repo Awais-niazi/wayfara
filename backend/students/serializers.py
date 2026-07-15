@@ -3,7 +3,7 @@ from rest_framework import serializers
 
 from wayfara.serializers import StrictModelSerializer, StrictSerializer
 
-from .models import Student, Task
+from .models import Document, Student, Task
 from .validators import validate_academic
 
 User = get_user_model()
@@ -149,3 +149,45 @@ class ProfileSerializer(StrictModelSerializer):
             "onboarding_completed",
         ]
         read_only_fields = ["id", "current_phase"]
+
+
+# ─── Documents ────────────────────────────────────────────────────────────────
+
+MAX_DOCUMENT_BYTES = 10 * 1024 * 1024  # 10 MB — a scan, not an archive
+ALLOWED_DOC_EXTENSIONS = {"pdf", "jpg", "jpeg", "png"}
+ALLOWED_DOC_CONTENT_TYPES = {"application/pdf", "image/jpeg", "image/png"}
+
+
+class DocumentUploadSerializer(StrictModelSerializer):
+    class Meta:
+        model = Document
+        fields = ["doc_type", "file", "expires_at"]
+        extra_kwargs = {"doc_type": {"required": True}}
+
+    def validate_file(self, value):
+        if value.size > MAX_DOCUMENT_BYTES:
+            raise serializers.ValidationError("File is too large (max 10 MB).")
+        extension = value.name.rsplit(".", 1)[-1].lower() if "." in value.name else ""
+        if extension not in ALLOWED_DOC_EXTENSIONS:
+            raise serializers.ValidationError("Upload a PDF, JPG or PNG.")
+        content_type = getattr(value, "content_type", "") or ""
+        if content_type and content_type not in ALLOWED_DOC_CONTENT_TYPES:
+            raise serializers.ValidationError("Upload a PDF, JPG or PNG.")
+        return value
+
+    def create(self, validated_data):
+        return Document.objects.create(
+            student=self.context["request"].user.student, **validated_data
+        )
+
+
+class DocumentSerializer(StrictModelSerializer):
+    filename = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Document
+        fields = ["id", "doc_type", "status", "filename", "expires_at", "uploaded_at"]
+        read_only_fields = fields
+
+    def get_filename(self, obj):
+        return obj.file.name.rsplit("/", 1)[-1] if obj.file else ""

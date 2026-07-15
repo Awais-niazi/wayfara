@@ -248,6 +248,160 @@ export function logout(deviceToken?: string) {
   return request<void>("/auth/logout/", post(deviceToken ? { device_token: deviceToken } : {}));
 }
 
+// ─── Applications (the workspace) ────────────────────────────────────────────
+
+export type ApplicationStatus =
+  | "shortlisted"
+  | "in_progress"
+  | "submitted"
+  | "offer_received"
+  | "waitlisted"
+  | "rejected"
+  | "place_confirmed"
+  | "withdrawn";
+
+export type DocType =
+  | "passport"
+  | "photo"
+  | "transcript"
+  | "degree_certificate"
+  | "language_certificate"
+  | "bank_statement"
+  | "sponsor_letter"
+  | "health_insurance"
+  | "acceptance_letter"
+  | "tuition_receipt"
+  | "accommodation_proof"
+  | "cv"
+  | "motivation_letter"
+  | "recommendation_letter"
+  | "other";
+
+export interface ChecklistItem {
+  doc_type: DocType;
+  label: string;
+  required: boolean;
+  notes: string;
+  fulfilled: boolean;
+  document_id: number | null;
+}
+
+export interface Application {
+  id: number;
+  status: ApplicationStatus;
+  fit: "safety" | "good_fit" | "reach" | "";
+  priority: number;
+  program: number;
+  program_name: string;
+  university: string;
+  university_id: number;
+  city: string;
+  degree_level: string;
+  application_deadline: string | null;
+  tuition_fee_eur: string | null;
+  docs_ready: number;
+  docs_total: number;
+  submitted_at: string | null;
+  created_at: string;
+}
+
+export interface ApplicationDetail extends Application {
+  checklist: ChecklistItem[];
+  motivation_letter: string;
+  studyinfo_reference: string;
+  notes: string;
+  decision_at: string | null;
+}
+
+export interface DocumentInfo {
+  id: number;
+  doc_type: DocType;
+  status: "uploaded" | "ai_reviewed" | "issues_found" | "verified";
+  filename: string;
+  expires_at: string | null;
+  uploaded_at: string;
+}
+
+/** Start an application for a programme (usually from a match). */
+export function createApplication(program: number) {
+  return request<ApplicationDetail>("/applications/", post({ program }));
+}
+
+export function getApplications() {
+  return request<Application[]>("/applications/");
+}
+
+export function getApplication(id: number) {
+  return request<ApplicationDetail>(`/applications/${id}/`);
+}
+
+export function updateApplication(
+  id: number,
+  patch: Partial<Pick<ApplicationDetail, "motivation_letter" | "notes" | "priority" | "studyinfo_reference">>,
+) {
+  return request<ApplicationDetail>(`/applications/${id}/`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+export function setApplicationStatus(id: number, status: ApplicationStatus) {
+  return request<ApplicationDetail>(`/applications/${id}/status/`, post({ status }));
+}
+
+// ─── Documents ───────────────────────────────────────────────────────────────
+
+/** Multipart upload — must NOT set Content-Type so fetch writes the boundary. */
+export async function uploadDocument(
+  docType: DocType,
+  file: { uri: string; name: string; mimeType?: string },
+) {
+  const form = new FormData();
+  form.append("doc_type", docType);
+  if (Platform.OS === "web") {
+    // On web the picker URI is a blob/data URL — convert to a real Blob.
+    const blob = await (await fetch(file.uri)).blob();
+    form.append("file", new File([blob], file.name, { type: file.mimeType }));
+  } else {
+    // React Native's FormData takes the {uri, name, type} shape.
+    form.append("file", {
+      uri: file.uri,
+      name: file.name,
+      type: file.mimeType ?? "application/octet-stream",
+    } as unknown as Blob);
+  }
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  const res = await fetch(`${API_URL}${API_VERSION_PREFIX}/documents/`, {
+    method: "POST",
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    body: form,
+  });
+  if (!res.ok) {
+    let body: unknown;
+    try {
+      body = await res.json();
+    } catch {
+      body = await res.text();
+    }
+    throw new ApiError(res.status, body);
+  }
+  return (await res.json()) as DocumentInfo;
+}
+
+export function getDocuments() {
+  return request<DocumentInfo[]>("/documents/");
+}
+
+export function deleteDocument(id: number) {
+  return request<void>(`/documents/${id}/`, { method: "DELETE" });
+}
+
+/** URL the app opens to view a document (redirects to a signed URL on R2). */
+export function documentDownloadUrl(id: number) {
+  return `${API_URL}${API_VERSION_PREFIX}/documents/${id}/download/`;
+}
+
 // ─── Notifications ───────────────────────────────────────────────────────────
 
 export type NotificationCategory =
