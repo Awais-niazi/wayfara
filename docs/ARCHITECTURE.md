@@ -331,7 +331,7 @@ SQLite fallback when `DATABASE_URL` is unset (a fresh clone runs with zero setup
 
 ### 4.2 App map
 
-Seven domain apps, split by concern:
+Eight domain apps, split by concern:
 
 | App | Owns | Key models |
 |---|---|---|
@@ -342,6 +342,7 @@ Seven domain apps, split by concern:
 | `advisor` | Human-advisor surface (Premium) | `AdvisorThread`, `AdvisorMessage` |
 | `chat` | "Ask Wayfara" AI conversations | `Conversation`, `Message` |
 | `scraping` | Data-freshness pipeline | `ScrapeSource`, `ScrapeRun`, `DataChange` |
+| `notifications` | Notification platform (inbox + push, all sources) | `Notification`, `Broadcast` |
 
 The field-level schema for the core domain lives in
 [`database-schema.md`](database-schema.md). Note that doc predates `advisor`,
@@ -411,6 +412,33 @@ sources stay **admin-managed baselines** rather than being auto-scraped.
   which bumps the version key the cached catalog API is keyed on — approved
   changes are visible to users immediately, no TTL wait.
 
+### 4.4b Notification platform (July 2026)
+
+One spine, many sources. Every notification in the product goes through
+`notifications/services.py::notify(user, category, title, body, data)` —
+which writes a durable `Notification` inbox row and mirrors it as an Expo
+push (`accounts/push.py`). The row is the record; a missed push is never a
+lost message. Adding a source is one call, never new plumbing.
+
+- **Sources wired:** the reminder dispatcher (Celery Beat every 5 min,
+  `setup_notification_schedule`; claim-then-send so overlapping runs can't
+  double-send; reminders >24h past due are swallowed + logged, so an outage
+  never blasts stale pings), admin-composed `Broadcast`s (targeted: all /
+  intake year / matched university; draft-only send guard), scraper-approved
+  **critical** `DataChange`s (notify students matched to the affected
+  university; low-risk auto-applies stay silent), and advisor messages.
+- **API:** `GET /notifications/` (paged, `unread_count` in-band for the bell
+  badge), `POST /notifications/read/` — owner-scoped.
+- **Mobile:** push registration on sign-in (permission → Expo token →
+  `POST /devices/`; token pruned on sign-out; web/simulators no-op),
+  `NotificationsScreen` inbox, live unread badge on the Home bell.
+- **Future phases plug into `notify()`:** doc-verification/application/visa
+  events (categories reserved), AI world news, per-category preferences +
+  quiet hours + email channel — all single-point changes.
+- **Limitation:** real push delivery requires a physical device with a dev
+  build (Expo Go dropped Android remote push in SDK 53); the inbox is the
+  web-testable surface.
+
 ### 4.5 Auth, sessions & roles
 - **Supabase owns sessions** (3.4): ES256 access tokens (1-hr expiry) +
   refresh, rotated automatically by supabase-js. Django holds no session state
@@ -462,6 +490,7 @@ no longer exposes any anonymous auth endpoints.
 | `GET /matches/` | University recommendations, best fit first |
 | `GET /tasks/` (`?phase=N`) · `POST /tasks/<id>/status/` | Journey plan + status changes |
 | `GET /universities/` · `GET /universities/<id>/` | Catalogue (cached, public) |
+| `GET /notifications/` · `POST /notifications/read/` | In-app inbox (paged, unread count) + mark-read |
 | `advisor/*`, `my-advisor/messages/` | Advisor console + the student side of the thread (Premium-gated) |
 
 > `GET /healthz` (bare path, outside `/api/v1/`, unauthenticated) is the only
@@ -701,8 +730,9 @@ Consolidated, so nothing hides in prose:
 Near-term, roughly ordered:
 
 1. **Layer 1 breadth** — Apps/Chat tabs (Profile + Explore/matches already
-   shipped, with deliberate sign-out behind a confirm), in-app push
-   registration, and the advisor/messaging surface.
+   shipped, with deliberate sign-out behind a confirm) and the
+   advisor/messaging surface. (Push registration + notification inbox
+   shipped July 2026 with the notification platform.)
 2. **Layer 3 storage** — S3/R2 + signed access, before document upload UI.
 3. **Hosting (Layer 5, when ready)** — Railway: set the env vars above, get TLS +
    the `SECURE_*` settings, wire CD, point uptime monitoring. Unblocks ~5 layers.
