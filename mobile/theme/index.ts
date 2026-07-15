@@ -49,6 +49,8 @@ export const colors = {
 
 // ─── Type ────────────────────────────────────────────────────────────────────
 // Family names below match the keys we load in App.tsx via expo-font.
+import { Platform } from "react-native";
+
 export const fonts = {
   // Space Grotesk — display / headings / numerals
   display: "SpaceGrotesk_700Bold",
@@ -59,6 +61,12 @@ export const fonts = {
   bodyRegular: "Manrope_400Regular",
   bodySemi: "Manrope_600SemiBold",
   bodyBold: "Manrope_700Bold",
+  // Dashboard greeting (product decision, July 2026): Times New Roman heading
+  // + Zapfino quote. Both are real system fonts on iOS only; elsewhere we ship
+  // the standard stand-ins loaded in App.tsx — Tinos (metric-identical to
+  // Times New Roman) and Great Vibes (Zapfino-style calligraphy).
+  welcomeSerif: Platform.OS === "ios" ? "Times New Roman" : "Tinos_400Regular",
+  welcomeScript: Platform.OS === "ios" ? "Zapfino" : "GreatVibes_400Regular",
 } as const;
 
 export const radius = {

@@ -14,6 +14,11 @@ import {
   SpaceGrotesk_600SemiBold,
   SpaceGrotesk_700Bold,
 } from "@expo-google-fonts/space-grotesk";
+// Dashboard greeting: Times New Roman + Zapfino are Apple/Monotype system
+// fonts — real on iOS, absent on Android/web. Tinos is metrically identical
+// to Times New Roman; Great Vibes is the Zapfino-style calligraphic script.
+import { Tinos_400Regular } from "@expo-google-fonts/tinos";
+import { GreatVibes_400Regular } from "@expo-google-fonts/great-vibes";
 
 import "./global.css";
 import { colors } from "./theme";
@@ -75,6 +80,8 @@ export default function App() {
     SpaceGrotesk_500Medium,
     SpaceGrotesk_600SemiBold,
     SpaceGrotesk_700Bold,
+    Tinos_400Regular,
+    GreatVibes_400Regular,
   });
 
   // Hold render until fonts are ready — the design leans heavily on

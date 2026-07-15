@@ -122,29 +122,6 @@ class ProfileTests(APITestCase):
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("is_admin", resp.data)
 
-    def test_username_is_editable_via_profile(self):
-        Student.objects.create(user=self.user)
-        self.client.force_authenticate(self.user)
-        resp = self.client.patch(reverse("profile"), {"username": "new_handle"})
-        self.assertEqual(resp.status_code, status.HTTP_200_OK)
-        self.user.refresh_from_db()
-        self.assertEqual(self.user.username, "new_handle")
-
-    def test_duplicate_username_rejected_on_edit(self):
-        User.objects.create_user(email="taken@example.com", username="taken")
-        Student.objects.create(user=self.user)
-        self.client.force_authenticate(self.user)
-        resp = self.client.patch(reverse("profile"), {"username": "taken"})
-        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("username", resp.data)
-
-    def test_bad_username_format_rejected_on_edit(self):
-        Student.objects.create(user=self.user)
-        self.client.force_authenticate(self.user)
-        resp = self.client.patch(reverse("profile"), {"username": "Bad Handle"})
-        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("username", resp.data)
-
     def test_editing_grade_alone_validates_against_stored_scale(self):
         # Partial PATCH: the new grade is checked against the scale already saved,
         # not a scale in this request.

@@ -49,7 +49,6 @@ import {
   budgetError,
   gradeError,
   testScoreError,
-  usernameError,
 } from "../lib/profileOptions";
 import { useAuth } from "../context/AuthContext";
 import type { RootStackParamList } from "../navigation/types";
@@ -58,7 +57,6 @@ type Props = NativeStackScreenProps<RootStackParamList, "Profile">;
 
 /** Editable slice of the profile, all as form-friendly strings/enums. */
 interface FormState {
-  username: string;
   first_name: string;
   last_name: string;
   phone: string;
@@ -79,7 +77,6 @@ interface FormState {
 
 function toForm(p: Profile): FormState {
   return {
-    username: p.username ?? "",
     first_name: p.first_name,
     last_name: p.last_name,
     phone: p.phone,
@@ -102,7 +99,6 @@ function toForm(p: Profile): FormState {
 /** The PATCH body: only fields that differ from the loaded profile. */
 function diff(form: FormState, base: FormState): Partial<Profile> {
   const patch: Partial<Profile> = {};
-  if (form.username !== base.username) patch.username = form.username.trim();
   if (form.first_name !== base.first_name) patch.first_name = form.first_name.trim();
   if (form.last_name !== base.last_name) patch.last_name = form.last_name.trim();
   if (form.phone !== base.phone) patch.phone = form.phone.trim();
@@ -163,11 +159,10 @@ export default function ProfileScreen({ navigation }: Props) {
   const dirty = Object.keys(patch).length > 0;
 
   // Inline semantic errors (mirror the server); block Save while any is present.
-  const usernameErr = form ? usernameError(form.username) : null;
   const gradesErr = form ? gradeError(form.grade_scale, form.grades) : null;
   const scoreErr = form ? testScoreError(form.language_test, form.language_test_score) : null;
   const budgetErr = form ? budgetError(form.budget) : null;
-  const hasErrors = !!(usernameErr || gradesErr || scoreErr || budgetErr);
+  const hasErrors = !!(gradesErr || scoreErr || budgetErr);
 
   const onSave = async () => {
     if (!dirty || saving || hasErrors) return;
@@ -194,7 +189,7 @@ export default function ProfileScreen({ navigation }: Props) {
   const displayName =
     profile && (profile.first_name || profile.last_name)
       ? `${profile.first_name} ${profile.last_name}`.trim()
-      : profile?.username || profile?.email.split("@")[0] || "";
+      : profile?.email.split("@")[0] ?? "";
 
   return (
     <SafeAreaView edges={["top"]} style={styles.root}>
@@ -256,16 +251,6 @@ export default function ProfileScreen({ navigation }: Props) {
 
           <Text style={styles.sectionTitle}>About you</Text>
           <View style={styles.fields}>
-            <Field
-              label="Username"
-              value={form.username}
-              onChangeText={(t) => set("username", t.toLowerCase())}
-              placeholder="wanderer_01"
-              autoCapitalize="none"
-              maxLength={20}
-              error={usernameErr}
-              hint="How we greet you on the dashboard."
-            />
             <Field
               label="First name"
               value={form.first_name}

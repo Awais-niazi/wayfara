@@ -57,7 +57,6 @@ import {
   budgetError,
   gradeError,
   testScoreError,
-  usernameError,
 } from "../lib/profileOptions";
 import type { RootStackParamList } from "../navigation/types";
 
@@ -93,7 +92,8 @@ export default function GetStartedScreen({ navigation }: Props) {
   const [step, setStep] = useState(0);
 
   const [email, setEmail] = useState("");
-  const [username, setUsername] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [password, setPassword] = useState("");
   const [studyLevel, setStudyLevel] = useState<StudyLevel | "">("");
   const [fieldOfStudy, setFieldOfStudy] = useState("");
@@ -117,7 +117,6 @@ export default function GetStartedScreen({ navigation }: Props) {
   const isLast = step === TOTAL - 1;
 
   // Inline semantic errors (mirror the server). Empty optional values pass.
-  const usernameErr = username.trim() === "" ? null : usernameError(username);
   const gradesErr = gradeError(gradeScale, grades);
   const scoreErr = testScoreError(languageTest, testScore);
   const budgetErr = budgetError(budget);
@@ -126,7 +125,8 @@ export default function GetStartedScreen({ navigation }: Props) {
     if (s === 0)
       return (
         email.trim().includes("@") &&
-        usernameError(username) === null &&
+        firstName.trim().length > 0 &&
+        lastName.trim().length > 0 &&
         password.length >= 8
       );
     // Required education fields + no illogical grade value.
@@ -169,7 +169,8 @@ export default function GetStartedScreen({ navigation }: Props) {
   }, [step]);
 
   const buildProfile = (): OnboardingForm => ({
-    username: username.trim(),
+    first_name: firstName.trim(),
+    last_name: lastName.trim(),
     study_level: studyLevel as StudyLevel,
     field_of_study: fieldOfStudy.trim(),
     ...(grades.trim() !== "" && { grade_scale: gradeScale as GradeScale, grades: grades.trim() }),
@@ -287,14 +288,21 @@ export default function GetStartedScreen({ navigation }: Props) {
                 keyboardType="email-address"
               />
               <Field
-                label="Username"
-                value={username}
-                onChangeText={(t) => setUsername(t.toLowerCase())}
-                placeholder="wanderer_01"
-                autoCapitalize="none"
-                maxLength={20}
-                error={usernameErr}
-                hint="This is how we'll greet you. Lowercase letters, numbers or _"
+                label="First name"
+                value={firstName}
+                onChangeText={setFirstName}
+                placeholder="Ayesha"
+                autoCapitalize="words"
+                maxLength={150}
+                hint="This is how we'll greet you"
+              />
+              <Field
+                label="Last name"
+                value={lastName}
+                onChangeText={setLastName}
+                placeholder="Khan"
+                autoCapitalize="words"
+                maxLength={150}
               />
               <Field
                 label="Password (8–20 characters)"

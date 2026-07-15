@@ -11,10 +11,11 @@ from .models import Student
 User = get_user_model()
 
 # Onboarding is now authenticated: the user has already signed up with Supabase
-# (identity/credentials are theirs), so the form carries a username + profile,
-# never an email.
+# (identity/credentials are theirs), so the form carries the student's name +
+# profile, never an email.
 FORM = {
-    "username": "applicant",
+    "first_name": "Ayesha",
+    "last_name": "Khan",
     "study_level": "masters",
     "field_of_study": "IT",
     "grade_scale": "gpa_4",
@@ -67,9 +68,10 @@ class OnboardingFlowTests(APITestCase):
         resp = self.submit_form()
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
 
-        # Username claimed on the account; student profile stored + onboarded.
+        # Name recorded on the account; student profile stored + onboarded.
         self.user.refresh_from_db()
-        self.assertEqual(self.user.username, "applicant")
+        self.assertEqual(self.user.first_name, "Ayesha")
+        self.assertEqual(self.user.last_name, "Khan")
         self.assertTrue(self.user.student.onboarding_completed)
 
         # Background matching ran (sync mode): filters applied.
@@ -119,37 +121,32 @@ class OnboardingFlowTests(APITestCase):
         self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
 
 
-class UsernameTests(APITestCase):
+class NameTests(APITestCase):
     def setUp(self):
         self.user = User.objects.create_user(email="applicant@example.com")
         self.client.force_authenticate(self.user)
 
-    def _submit(self, **overrides):
-        return self.client.post(reverse("onboarding"), {**FORM, **overrides}, format="json")
+    def _submit_without(self, field):
+        payload = {k: v for k, v in FORM.items() if k != field}
+        return self.client.post(reverse("onboarding"), payload, format="json")
 
-    def test_username_is_required(self):
-        payload = {k: v for k, v in FORM.items() if k != "username"}
-        resp = self.client.post(reverse("onboarding"), payload, format="json")
-        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("username", resp.data)
+    def test_first_and_last_name_are_required(self):
+        for field in ("first_name", "last_name"):
+            resp = self._submit_without(field)
+            self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST, field)
+            self.assertIn(field, resp.data)
 
-    def test_bad_format_rejected(self):
-        for bad in ("ab", "Has Spaces", "UPPER", "way-too-long-a-username", "no!"):
-            resp = self._submit(username=bad)
-            self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST, bad)
-            self.assertIn("username", resp.data)
-
-    def test_duplicate_username_rejected(self):
-        User.objects.create_user(email="other@example.com", username="taken")
-        resp = self._submit(username="taken")
-        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("username", resp.data)
-
-    def test_valid_username_saved_on_account(self):
-        resp = self._submit(username="wanderer_01")
+    def test_name_is_saved_on_the_account(self):
+        resp = self.client.post(
+            reverse("onboarding"),
+            {**FORM, "first_name": "  Bilal ", "last_name": "Ahmed"},
+            format="json",
+        )
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(resp.data["first_name"], "Bilal")  # greeting-ready
         self.user.refresh_from_db()
-        self.assertEqual(self.user.username, "wanderer_01")
+        self.assertEqual(self.user.first_name, "Bilal")  # whitespace stripped
+        self.assertEqual(self.user.last_name, "Ahmed")
 
 
 class AcademicValidationTests(APITestCase):

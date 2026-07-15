@@ -8,9 +8,9 @@ from .supabase import SupabaseAdminError, provision_advisor
 @admin.register(User)
 class WayfaraUserAdmin(UserAdmin):
     ordering = ["email"]
-    list_display = ["email", "username", "role", "tier", "is_active", "date_joined"]
+    list_display = ["email", "first_name", "last_name", "role", "tier", "is_active", "date_joined"]
     list_filter = ["role", "tier", "is_active"]
-    search_fields = ["email", "username", "first_name", "last_name"]
+    search_fields = ["email", "first_name", "last_name"]
     readonly_fields = ["supabase_id"]
     actions = ["provision_as_advisor"]
 
@@ -32,7 +32,7 @@ class WayfaraUserAdmin(UserAdmin):
             )
 
     fieldsets = (
-        (None, {"fields": ("email", "username", "password")}),
+        (None, {"fields": ("email", "password")}),
         ("Identity", {"fields": ("supabase_id",)}),
         ("Personal info", {"fields": ("first_name", "last_name")}),
         ("Entitlement", {"fields": ("tier", "role")}),

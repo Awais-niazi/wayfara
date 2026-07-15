@@ -151,13 +151,13 @@ class MeAndLogoutTests(APITestCase):
     def test_me_requires_auth(self):
         self.assertEqual(self.client.get(reverse("me")).status_code, 401)
 
-    def test_me_reports_username_role_and_onboarding_state(self):
+    def test_me_reports_name_role_and_onboarding_state(self):
         from students.models import Student
 
-        user = User.objects.create_user(email="s@example.com", username="wanderer")
+        user = User.objects.create_user(email="s@example.com", first_name="Ayesha")
         self.client.force_authenticate(user)
         resp = self.client.get(reverse("me"))
-        self.assertEqual(resp.data["username"], "wanderer")
+        self.assertEqual(resp.data["first_name"], "Ayesha")
         self.assertEqual(resp.data["role"], "student")
         self.assertFalse(resp.data["onboarding_complete"])
 

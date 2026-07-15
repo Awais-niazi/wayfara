@@ -21,8 +21,9 @@ class OnboardingView(APIView):
     """The Get Started form: authenticated profile submission.
 
     The user has already signed up with Supabase (its token authenticates this
-    request); onboarding claims a username, stores the Student profile, and
-    kicks off university matching + timeline generation in the background.
+    request); onboarding records the student's name, stores the Student
+    profile, and kicks off university matching + timeline generation in the
+    background.
     """
 
     throttle_classes = [ScopedRateThrottle]
@@ -38,7 +39,7 @@ class OnboardingView(APIView):
         return Response(
             {
                 "detail": "We're matching universities to your profile.",
-                "username": student.user.username,
+                "first_name": student.user.first_name,
             },
             status=status.HTTP_201_CREATED,
         )

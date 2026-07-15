@@ -98,18 +98,18 @@ Postgres cluster is `16/finnguide`); the database inside it is `wayfara`.
 The canonical flow the whole system is built around — **form-first, no register
 wall** (the account fields are just step 1 of the same wizard):
 
-1. **App → Supabase `signUp`** (email + password, collected with the username in
-   wizard step 1). Supabase emails a **6-digit code**; the app verifies it with
+1. **App → Supabase `signUp`** (email + password, collected with the student's
+   first/last name in wizard step 1). Supabase emails a **6-digit code**; the app verifies it with
    Supabase (`verifyOtp`) and now holds a session (ES256 access + refresh,
    auto-refreshed by supabase-js).
-2. **App → `POST /api/v1/onboarding/`** (authenticated with that token): claims
-   the **username** and stores the `Student` profile; in the same transaction
+2. **App → `POST /api/v1/onboarding/`** (authenticated with that token): records
+   the student's **name** and stores the `Student` profile; in the same transaction
    enqueues **two background tasks** on commit — university matching and
    timeline generation. Django JIT-provisions its local `User` shadow (keyed by
    the Supabase UUID) the first time it sees a valid token.
 3. **Dashboard** reads `/api/v1/profile/`, `/api/v1/matches/`,
    `/api/v1/tasks/` — by now the background tasks have populated matches and
-   a dated journey plan. The greeting uses the username.
+   a dated journey plan. The greeting uses the first name.
 
 ---
 
@@ -173,7 +173,7 @@ across working sessions.
   first valid token, the local `User` shadow is **JIT-provisioned**, keyed by
   `supabase_id` (the Supabase UUID); a pre-provisioned row (advisor) is linked
   by email instead of duplicated. Django keeps what Supabase can't own:
-  `username`, `role`, `tier`, and the whole domain.
+  the person's name, `role`, `tier`, and the whole domain.
 - **Email delivery.** Supabase Auth sends via **custom SMTP (Resend)**; the
   Confirm-signup and Magic-link templates are edited to carry `{{ .Token }}` —
   a 6-digit code, not a link (codes beat links on mobile). Until a sending
@@ -185,8 +185,8 @@ across working sessions.
 
 ### 3.5 Form-first onboarding, no register wall
 - **Why.** Zero-friction funnel — the student sees value (their matches + a dated
-  plan) before being asked to commit. The account fields (email, **username**,
-  password) are step 1 of the same 4-step wizard, not a separate wall; the
+  plan) before being asked to commit. The account fields (email, **first/last
+  name**, password) are step 1 of the same 4-step wizard, not a separate wall; the
   profile answers ride along and `POST /api/v1/onboarding/` (authenticated)
   stores them once the email code verifies.
 - **Trade-off.** A Supabase identity can exist before onboarding finishes, so
@@ -425,12 +425,13 @@ sources stay **admin-managed baselines** rather than being auto-scraped.
   `shouldCreateUser: false` so login can't silently create accounts) is the
   fallback. Passwords are 8–20 chars — enforced in the wizard and in
   Supabase's minimum-length setting.
-- **Username (July 2026).** Django-owned public handle on `User`:
-  `^[a-z0-9_]{3,20}$`, unique, claimed at onboarding, editable via
-  `PATCH /profile/`. The dashboard greets by username → first name → email
-  prefix, in that order.
+- **Names, not usernames (July 2026).** Onboarding requires first + last
+  name (stored on `User`, editable via `PATCH /profile/`); the dashboard
+  greets **"Welcome aboard, {first name}"**. A separate unique username was
+  collected briefly, then dropped the same month — one less thing to invent
+  at signup, and a name is what an advisor/greeting actually needs.
 - **Roles.** `User.role` is `student` or `advisor`. `/api/v1/me/` is the session
-  bootstrap — it returns `username`, `role`, `tier`, `email_verified`, and
+  bootstrap — it returns `first_name`, `role`, `tier`, `email_verified`, and
   `onboarding_complete`, and the app routes on those.
 - **Advisor provisioning.** No self-signup: `manage.py create_advisor <email>`
   (or the admin action) calls Supabase's Admin **invite** endpoint with the
@@ -453,11 +454,11 @@ no longer exposes any anonymous auth endpoints.
 
 | Method + path | Purpose |
 |---|---|
-| `POST /onboarding/` | Get Started wizard → claims username + stores Student + background matching/timeline |
-| `GET /me/` | Session bootstrap (username, role, tier, verified, onboarding_complete) |
+| `POST /onboarding/` | Get Started wizard → records name + stores Student + background matching/timeline |
+| `GET /me/` | Session bootstrap (first_name, role, tier, verified, onboarding_complete) |
 | `POST /auth/logout/` | Prune this device's push token (session revocation is Supabase `signOut()`) |
 | `POST\|DELETE /devices/` | Register / deregister an Expo push token |
-| `GET\|PATCH /profile/` | Read/update the onboarding profile (incl. username); match-relevant edits re-run matching |
+| `GET\|PATCH /profile/` | Read/update the onboarding profile (incl. name); match-relevant edits re-run matching |
 | `GET /matches/` | University recommendations, best fit first |
 | `GET /tasks/` (`?phase=N`) · `POST /tasks/<id>/status/` | Journey plan + status changes |
 | `GET /universities/` · `GET /universities/<id>/` | Catalogue (cached, public) |
@@ -476,7 +477,7 @@ no longer exposes any anonymous auth endpoints.
   under `TESTING`.
 - **Input hardening (July 2026).** Every writable field is bounded and typed at
   the serializer, so hostile input fails with a clean 400 before it reaches the
-  ORM or DB (usernames are `^[a-z0-9_]{3,20}$`; passwords — now validated by
+  ORM or DB (names are length-capped; passwords — now validated by
   Supabase — stay 8–20 chars, mirrored in its min-length setting). SQL
   injection was never reachable — the codebase has **zero raw SQL** (`grep`
   for `.raw(`/`.extra(`/`cursor()` is empty; everything is parameterized ORM) —
@@ -635,7 +636,7 @@ Awais's mandated launch-readiness checklist. Status as of this document:
 | 1 | Frontend foundations | 🟢 | Nav, Supabase-backed auth state, typed API client, onboarding spine, design system |
 | 2 | APIs & backend logic | 🟢 | 7 apps; matching + timeline engines; advisor; scraper; versioned `/api/v1/`; strict input validation on every serializer |
 | 3 | Database & storage | 🟡 | Postgres :5433 + migrations done; **media still local disk** (needs S3/R2 + signed access) |
-| 4 | Auth & permissions | 🟢 | Supabase identity (password + OTP fallback, ES256/JWKS-verified); usernames; roles; row-level scoping |
+| 4 | Auth & permissions | 🟢 | Supabase identity (password + OTP fallback, ES256/JWKS-verified); roles; row-level scoping |
 | 5 | Hosting & deployment | 🔴 | Not started (Railway planned; env-driven config already prepped); `/healthz` ready for the platform health check |
 | 6 | Cloud & compute | 🟡 | Celery/Redis/Beat designed & correct; runs only locally |
 | 7 | CI/CD & version control | 🟡 | GitHub Actions CI (Postgres service) + guardrail tests for API versioning/strict-serializer conventions; **no CD** (blocked on Layer 5) |

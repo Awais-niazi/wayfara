@@ -25,7 +25,7 @@ export const API_URL = defaultApiUrl();
 
 export interface Me {
   email: string;
-  username: string | null;
+  first_name: string;
   role: "student" | "advisor" | string;
   tier: "free" | "full" | "premium" | string;
   email_verified: boolean;
@@ -40,7 +40,8 @@ export type Intake = "september" | "january";
 export type Stage = "exploring" | "ready" | "applied";
 
 export interface OnboardingForm {
-  username: string;
+  first_name: string;
+  last_name: string;
   study_level: StudyLevel;
   field_of_study: string;
   grade_scale?: GradeScale;
@@ -57,7 +58,6 @@ export interface OnboardingForm {
 export interface Profile {
   id: number;
   email: string;
-  username: string | null;
   first_name: string;
   last_name: string;
   tier: string;
@@ -231,10 +231,10 @@ const post = (body: unknown): RequestInit => ({
 
 // ─── Endpoints ───────────────────────────────────────────────────────────────
 
-/** The Get Started form. The user is already Supabase-authenticated; this claims
- *  a username, stores the profile, and kicks off matching in the background. */
+/** The Get Started form. The user is already Supabase-authenticated; this
+ *  records their name, stores the profile, and kicks off matching. */
 export function submitOnboarding(form: OnboardingForm) {
-  return request<{ detail: string; username: string }>("/onboarding/", post(form));
+  return request<{ detail: string; first_name: string }>("/onboarding/", post(form));
 }
 
 /** Session bootstrap — 401 means signed out. */

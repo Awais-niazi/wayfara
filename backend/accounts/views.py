@@ -15,7 +15,7 @@ class MeView(APIView):
 
     No valid Supabase token -> 401 -> Get Started. Otherwise the app routes on
     `role` (student home vs advisor console) and `onboarding_complete`, and
-    greets the user by `username`.
+    greets the user by first name.
     """
 
     def get(self, request):
@@ -23,7 +23,7 @@ class MeView(APIView):
         return Response(
             {
                 "email": user.email,
-                "username": user.username,
+                "first_name": user.first_name,
                 "role": user.role,
                 "tier": user.tier,
                 "email_verified": user.email_verified,

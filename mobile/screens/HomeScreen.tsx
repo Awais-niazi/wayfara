@@ -84,12 +84,6 @@ const shortDate = (iso: string | null) =>
     ? "—"
     : new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 
-function greetingForNow(): string {
-  const h = new Date().getHours();
-  if (h < 12) return "Good morning";
-  if (h < 18) return "Good afternoon";
-  return "Good evening";
-}
 
 function UniCard({ match, index, onPress }: { match: Match; index: number; onPress: () => void }) {
   const c = CARD_COLORS[index % CARD_COLORS.length];
@@ -176,9 +170,8 @@ export default function HomeScreen({ navigation }: Props) {
   }, [load]);
 
   // ── Derived view data ──────────────────────────────────────────────────────
-  // Greet by the chosen username first, then a real name, then the email prefix.
-  const displayName =
-    profile?.username || profile?.first_name || profile?.email.split("@")[0] || "there";
+  // Greet by first name; email prefix only as a last resort for legacy rows.
+  const displayName = profile?.first_name || profile?.email.split("@")[0] || "there";
 
   const today = new Date().toLocaleDateString("en-GB", {
     weekday: "long",
@@ -230,10 +223,13 @@ export default function HomeScreen({ navigation }: Props) {
           <View style={styles.pad}>
             {/* top bar */}
             <View style={styles.topBar}>
-              <View>
+              <View style={{ flex: 1, paddingRight: 10 }}>
                 <Text style={styles.date}>{today}</Text>
-                <Text style={styles.greeting}>
-                  {greetingForNow()}, {displayName}
+                <Text style={styles.greeting} numberOfLines={1}>
+                  Welcome aboard, {displayName}
+                </Text>
+                <Text style={styles.greetingQuote}>
+                  You are exactly where you need to be
                 </Text>
               </View>
               <View style={styles.topActions}>
@@ -484,9 +480,18 @@ const styles = StyleSheet.create({
   scrollBody: { paddingBottom: 20 },
   pad: { paddingHorizontal: 20 },
 
-  topBar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingTop: 4 },
+  topBar: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", paddingTop: 4 },
   date: { fontFamily: fonts.bodySemi, fontSize: 12.5, color: colors.textFaintest, letterSpacing: 0.2 },
-  greeting: { fontFamily: fonts.display, fontSize: 24, letterSpacing: -0.6, color: colors.ink, marginTop: 2 },
+  greeting: { fontFamily: fonts.welcomeSerif, fontSize: 26, color: colors.ink, marginTop: 3 },
+  // Calligraphic fonts carry huge ascenders/descenders — the roomy lineHeight
+  // keeps Zapfino/Great Vibes from clipping.
+  greetingQuote: {
+    fontFamily: fonts.welcomeScript,
+    fontSize: 13.5,
+    lineHeight: 30,
+    color: colors.textFaint,
+    marginTop: 1,
+  },
   topActions: { flexDirection: "row", alignItems: "center", gap: 10 },
   iconBtn: {
     width: 44,

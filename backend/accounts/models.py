@@ -1,15 +1,11 @@
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser, BaseUserManager
-from django.core.validators import RegexValidator
 from django.db import models
 
 
 class UserManager(BaseUserManager):
-    """Manager for email-based authentication (no username login).
-
-    `username` exists as a public handle (see below) but is never the login
-    key — identity is the email, and credentials live in Supabase.
-    """
+    """Manager for email-based authentication (no username). Identity is the
+    email; credentials live in Supabase."""
 
     use_in_migrations = True
 
@@ -32,22 +28,16 @@ class UserManager(BaseUserManager):
         return self._create_user(email, password, **extra_fields)
 
 
-# Public handle: lowercase letters/digits/underscore, 3–20 chars. Mirrored on
-# the client (mobile/lib/profileOptions.ts) and enforced here as the authority.
-username_validator = RegexValidator(
-    r"^[a-z0-9_]{3,20}$",
-    "Username must be 3–20 characters: lowercase letters, numbers, or underscore.",
-)
-
-
 class User(AbstractUser):
     """Auth mirror + entitlement. Domain profile lives on students.Student.
 
     Identity now belongs to Supabase: credentials, sessions, OTP, and token
     issuance are all theirs. This row is a local shadow keyed by `supabase_id`
     (the Supabase user UUID), created just-in-time the first time a valid
-    Supabase token is seen. `tier`/`role`/`username` are ours — account-level
-    fields Supabase doesn't know about.
+    Supabase token is seen. `tier`/`role` and the person's name are ours —
+    account-level facts Supabase doesn't know about. (A separate username was
+    collected briefly in July 2026, then dropped: students are greeted by
+    first name instead.)
     """
 
     class Tier(models.TextChoices):
@@ -59,14 +49,7 @@ class User(AbstractUser):
         STUDENT = "student", "Student"
         ADVISOR = "advisor", "Advisor"
 
-    username = models.CharField(
-        max_length=20,
-        unique=True,
-        null=True,
-        blank=True,
-        validators=[username_validator],
-        help_text="Public handle shown on the dashboard. Unique, editable.",
-    )
+    username = None
     email = models.EmailField("email address", unique=True)
     # The Supabase auth user UUID. Null only for the brief window before first
     # login provisions it (and for fixtures/tests using force_authenticate).
