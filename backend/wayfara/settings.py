@@ -54,6 +54,7 @@ INSTALLED_APPS = [
     "applications",
     "chat",
     "scraping",
+    "notifications",
 ]
 
 MIDDLEWARE = [

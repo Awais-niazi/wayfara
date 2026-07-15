@@ -17,4 +17,5 @@ export type RootStackParamList = {
   // Home already holds the full ranked list — hand it over for instant render.
   Matches: { matches: Match[] };
   Profile: undefined;
+  Notifications: undefined;
 };

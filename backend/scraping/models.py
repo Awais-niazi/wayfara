@@ -105,6 +105,17 @@ class DataChange(models.Model):
         self.applied_automatically = automatic
         self.applied_at = timezone.now()
         self.save(update_fields=["status", "applied_automatically", "applied_at"])
+        # A critical, human-approved change is news to the students it affects
+        # (matched to that university) — fan out via the notification platform.
+        # Low-risk auto-applies stay silent: routine data churn isn't a ping.
+        if self.risk == self.Risk.CRITICAL and not automatic:
+            from django.db import transaction
+
+            from notifications.tasks import notify_students_of_data_change_task
+
+            transaction.on_commit(
+                lambda: notify_students_of_data_change_task.delay(self.pk)
+            )
 
     def reject(self):
         self.status = self.Status.REJECTED

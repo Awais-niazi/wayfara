@@ -22,6 +22,10 @@ import React, {
 } from "react";
 
 import { getMe, logout as apiLogout, type Me } from "../lib/api";
+import {
+  getRegisteredPushToken,
+  registerForPushNotifications,
+} from "../lib/pushRegistration";
 import { supabase } from "../lib/supabase";
 
 type AuthStatus = "loading" | "signedOut" | "signedIn";
@@ -55,6 +59,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // A session without a finished profile stays in the signed-out stack so
       // the Get Started flow can run its final onboarding call.
       setStatus(session.onboarding_complete ? "signedIn" : "signedOut");
+      if (session.onboarding_complete) {
+        // Fire-and-forget: permission ask + Expo token + /devices/ register.
+        registerForPushNotifications();
+      }
     } catch {
       // Token rejected (e.g. Supabase not configured yet) — treat as signed out.
       setMe(null);
@@ -73,7 +81,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = useCallback(async () => {
     try {
-      await apiLogout(); // best-effort device-token prune
+      // Prune this device's push token so a signed-out phone goes quiet.
+      await apiLogout(getRegisteredPushToken() ?? undefined);
     } catch {
       // Signing out locally regardless.
     }

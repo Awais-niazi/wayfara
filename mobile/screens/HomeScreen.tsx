@@ -41,6 +41,7 @@ import {
 import {
   getAiMatches,
   getMatches,
+  getNotifications,
   getProfile,
   getTasks,
   type AiMatch,
@@ -134,6 +135,7 @@ export default function HomeScreen({ navigation }: Props) {
   const [matches, setMatches] = useState<Match[]>([]);
   const [aiMatches, setAiMatches] = useState<AiMatch[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -160,6 +162,10 @@ export default function HomeScreen({ navigation }: Props) {
     getAiMatches()
       .then((ai) => setAiMatches(ai.slice(0, 3)))
       .catch(() => {});
+    // Bell badge — additive too, never blocks the dashboard.
+    getNotifications()
+      .then((page) => setUnreadCount(page.unread_count))
+      .catch(() => {});
   }, []);
 
   const load = useCallback(() => fetch("initial"), [fetch]);
@@ -168,6 +174,15 @@ export default function HomeScreen({ navigation }: Props) {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Coming back from the inbox: the badge should reflect what was just read.
+  useEffect(() => {
+    return navigation.addListener("focus", () => {
+      getNotifications()
+        .then((page) => setUnreadCount(page.unread_count))
+        .catch(() => {});
+    });
+  }, [navigation]);
 
   // ── Derived view data ──────────────────────────────────────────────────────
   // Greet by first name; email prefix only as a last resort for legacy rows.
@@ -234,12 +249,23 @@ export default function HomeScreen({ navigation }: Props) {
               </View>
               <View style={styles.topActions}>
                 <Pressable
+                  onPress={() => navigation.navigate("Notifications")}
                   accessibilityRole="button"
-                  accessibilityLabel="Notifications"
+                  accessibilityLabel={
+                    unreadCount > 0
+                      ? `Notifications, ${unreadCount} unread`
+                      : "Notifications"
+                  }
                   style={styles.iconBtn}
                 >
                   <BellIcon size={20} color="#4A3D31" />
-                  <View style={styles.notifDot} />
+                  {unreadCount > 0 && (
+                    <View style={styles.notifBadge}>
+                      <Text style={styles.notifBadgeText}>
+                        {unreadCount > 9 ? "9+" : unreadCount}
+                      </Text>
+                    </View>
+                  )}
                 </Pressable>
                 <Pressable
                   onPress={() => navigation.navigate("Profile")}
@@ -503,17 +529,21 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  notifDot: {
+  notifBadge: {
     position: "absolute",
-    top: 8,
-    right: 9,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    top: 5,
+    right: 5,
+    minWidth: 17,
+    height: 17,
+    borderRadius: 9,
+    paddingHorizontal: 4,
     backgroundColor: colors.accent,
     borderWidth: 1.5,
     borderColor: "#fff",
+    alignItems: "center",
+    justifyContent: "center",
   },
+  notifBadgeText: { fontFamily: fonts.bodyBold, fontSize: 9.5, color: "#fff" },
   avatar: { width: 44, height: 44, borderRadius: 13, alignItems: "center", justifyContent: "center" },
   avatarText: { fontFamily: fonts.display, fontSize: 16, color: "#fff" },
 

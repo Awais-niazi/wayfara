@@ -32,6 +32,7 @@ import HomeScreen from "./screens/HomeScreen";
 import MatchDetailScreen from "./screens/MatchDetailScreen";
 import MatchesScreen from "./screens/MatchesScreen";
 import ProfileScreen from "./screens/ProfileScreen";
+import NotificationsScreen from "./screens/NotificationsScreen";
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -56,6 +57,7 @@ function RootNavigator() {
           <Stack.Screen name="MatchDetail" component={MatchDetailScreen} />
           <Stack.Screen name="Matches" component={MatchesScreen} />
           <Stack.Screen name="Profile" component={ProfileScreen} />
+          <Stack.Screen name="Notifications" component={NotificationsScreen} />
         </>
       ) : (
         <>

@@ -248,6 +248,50 @@ export function logout(deviceToken?: string) {
   return request<void>("/auth/logout/", post(deviceToken ? { device_token: deviceToken } : {}));
 }
 
+// ─── Notifications ───────────────────────────────────────────────────────────
+
+export type NotificationCategory =
+  | "reminder"
+  | "advisor"
+  | "news"
+  | "update"
+  | "system"
+  | "document"
+  | "application"
+  | "visa";
+
+export interface AppNotification {
+  id: number;
+  category: NotificationCategory;
+  title: string;
+  body: string;
+  /** Deep-link payload, e.g. { type: "task", task_id: 7 }. */
+  data: Record<string, unknown>;
+  created_at: string;
+  read_at: string | null;
+}
+
+export interface NotificationPage {
+  unread_count: number;
+  has_more: boolean;
+  results: AppNotification[];
+}
+
+/** The inbox, newest first; pass `before` (an id) to page back in history. */
+export function getNotifications(before?: number) {
+  const qs = before !== undefined ? `?before=${before}` : "";
+  return request<NotificationPage>(`/notifications/${qs}`);
+}
+
+export function markNotificationsRead(payload: { ids?: number[]; all?: boolean }) {
+  return request<{ marked_read: number }>("/notifications/read/", post(payload));
+}
+
+/** Register this device's Expo push token so the backend can reach it. */
+export function registerDevice(token: string, platform: "ios" | "android") {
+  return request<void>("/devices/", post({ token, platform }));
+}
+
 export function getProfile() {
   return request<Profile>("/profile/");
 }

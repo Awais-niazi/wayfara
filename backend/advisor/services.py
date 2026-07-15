@@ -56,9 +56,11 @@ def recipient_of(message):
 
 
 def notify_new_message(message_id):
-    """Push a 'new message' notification to the other participant. Business
-    logic for the Celery task lives here, not in the task."""
-    from accounts.push import send_push_to_user
+    """Notify the other participant of a new message. Routed through the
+    notification platform (notifications.services.notify) so the message
+    lands in the in-app inbox AND as a push — a missed push isn't lost."""
+    from notifications.models import Notification
+    from notifications.services import notify
 
     message = (
         AdvisorMessage.objects.select_related(
@@ -75,8 +77,9 @@ def notify_new_message(message_id):
     sender_is_student = message.sender_id == message.thread.student.user_id
     title = "Your advisor" if sender_is_student else "New message from your advisor"
     preview = message.body[:120] if message.body else "Sent you a voice note"
-    send_push_to_user(
+    notify(
         recipient,
+        category=Notification.Category.ADVISOR,
         title=title,
         body=preview,
         data={"type": "advisor_message", "thread_id": message.thread_id},

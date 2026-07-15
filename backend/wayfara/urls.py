@@ -19,4 +19,5 @@ urlpatterns = [
     path(API_V1, include("students.urls")),
     path(API_V1, include("applications.urls")),
     path(API_V1, include("universities.urls")),
+    path(API_V1, include("notifications.urls")),
 ]
