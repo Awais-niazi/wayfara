@@ -53,6 +53,8 @@ MATCH_RELEVANT_FIELDS = (
     "language_test_status",
     "language_test",
     "language_test_score",
+    "grade_scale",
+    "grades",
     "intake",
 )
 

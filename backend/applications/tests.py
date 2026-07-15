@@ -98,6 +98,71 @@ class MatchFilterTests(APITestCase):
         self.assertEqual(Match.objects.get(program=requiring).fit, Match.Fit.REACH)
 
 
+class AcademicStrengthScoringTests(APITestCase):
+    """Grades are a scoring signal (Awais's product decision, July 2026):
+    exceptional profiles — ≥95% marks or GPA ≥3.5 — must move the match score
+    drastically, reaching 100 on a well-fitting program."""
+
+    def setUp(self):
+        self.uni = University.objects.create(
+            name="Aalto", institution_type="university", city="Espoo"
+        )
+        # A well-fitting program: clears IELTS with headroom, matching intake,
+        # tuition-free → 50 +20 +10 +5 = 85 before grades.
+        self.program = make_program(
+            self.uni, "Well-fitting", tuition_fee_eur=0, min_ielts_score="6.5",
+        )
+
+    def score_for(self, **profile):
+        student = Student.objects.create(
+            user=User.objects.create_user(email=f"g{Student.objects.count()}@example.com"),
+            study_level="masters", field_of_study="IT", budget_eur_per_year=None,
+            language_test_status="taken", language_test="ielts",
+            language_test_score="7.5", intake="september",
+            **profile,
+        )
+        match_programs_for_student(student.pk)
+        return Match.objects.get(student=student, program=self.program).score
+
+    def test_gpa_3_5_or_above_reaches_100(self):
+        self.assertEqual(self.score_for(grade_scale="gpa_4", grades="3.5"), 100)
+        self.assertEqual(self.score_for(grade_scale="gpa_4", grades="3.9"), 100)
+
+    def test_95_percent_marks_reach_100(self):
+        self.assertEqual(self.score_for(grade_scale="percentage", grades="95"), 100)
+
+    def test_a_star_reaches_100(self):
+        self.assertEqual(self.score_for(grade_scale="letter", grades="A*"), 100)
+
+    def test_band_ladder_separates_profiles(self):
+        # A mid-fit program (paid, January intake → no +10/+5) shows the full
+        # ladder without the 100 clamp flattening it: base 50 + IELTS 20 = 70.
+        mid = make_program(
+            self.uni, "Mid-fit", tuition_fee_eur=0, intake="january",
+            min_ielts_score="6.5",
+        )
+        def mid_score(**profile):
+            s = Student.objects.create(
+                user=User.objects.create_user(email=f"l{Student.objects.count()}@example.com"),
+                study_level="masters", field_of_study="IT", budget_eur_per_year=None,
+                language_test_status="taken", language_test="ielts",
+                language_test_score="7.5", intake="september", **profile,
+            )
+            match_programs_for_student(s.pk)
+            return Match.objects.get(student=s, program=mid).score
+
+        none = mid_score()                                          # 75
+        good = mid_score(grade_scale="gpa_4", grades="2.7")         # +8
+        strong = mid_score(grade_scale="percentage", grades="88")   # +15
+        exceptional = mid_score(grade_scale="gpa_4", grades="3.8")  # +25
+        self.assertEqual([none, good, strong, exceptional], [75, 83, 90, 100])
+
+    def test_weak_grades_are_not_penalized(self):
+        # Encouragement-first: low grades add nothing but subtract nothing.
+        self.assertEqual(self.score_for(grade_scale="gpa_4", grades="1.8"),
+                         self.score_for())
+
+
 class ProfileEditRematchTests(APITestCase):
     """The Profile screen promises 'changing these updates your matches' —
     hold the API to it."""
@@ -135,6 +200,15 @@ class ProfileEditRematchTests(APITestCase):
                     reverse("profile"),
                     {"language_test_status": "taken", "language_test": "ielts",
                      "language_test_score": "7.5"},
+                )
+        task.assert_called_once_with(self.student.pk)
+
+    def test_grades_edit_regenerates_matches(self):
+        # Grades are a scoring signal now — editing them must re-rank.
+        with patch("students.views.match_programs_task.delay") as task:
+            with self.captureOnCommitCallbacks(execute=True):
+                self.client.patch(
+                    reverse("profile"), {"grade_scale": "gpa_4", "grades": "3.8"}
                 )
         task.assert_called_once_with(self.student.pk)
 

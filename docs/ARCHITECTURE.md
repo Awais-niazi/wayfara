@@ -358,8 +358,11 @@ to iterate and unit-test.
   budget vs tuition, **application window still open** — a passed
   `application_deadline` disqualifies outright; unknown deadlines stay) and
   scores each 0–100 with a **Safety / Good-fit / Reach** rating. Signals
-  include IELTS headroom over `min_ielts_score`, acceptance-rate selectivity,
-  intake match, and tuition-free bonus. Produces `Match` rows (distinct from
+  include IELTS headroom over `min_ielts_score`, **academic strength**
+  (grade-band boost: exceptional +25 / strong +15 / good +8 — see debt #4,
+  resolved), acceptance-rate selectivity, intake match, and tuition-free
+  bonus. The score is a **profile-fit heuristic, not an admission
+  probability**. Produces `Match` rows (distinct from
   `Application`, which is user *intent*). Served best-first by
   `/api/v1/matches/`. Accuracy rules (July 2026 scan):
   - **Budget:** blank and `0` both mean *tuition-free only* (the validator's
@@ -665,10 +668,13 @@ Consolidated, so nothing hides in prose:
    `localhost`, not the port.
 3. **NativeWind v5 is preview software.** Works today; fallback is pinning a
    known-good nightly. Also the reason SDK 57 may outrun public Expo Go.
-4. **`grades` isn't yet a matching signal.** Now captured *structured* (a
-   `grade_scale` + a value validated against it — GPA 0.5–4, percentage 0–100,
-   or an O/A-Level letter), so it's ready to weight, but the scoring heuristic
-   still doesn't use it. Product decision pending on how.
+4. **~~`grades` isn't yet a matching signal~~ — DONE (July 2026).** Awais's
+   product decision: grades add a flat per-student boost to every program's
+   score — **exceptional** (GPA ≥3.5 / marks ≥95% / A*) +25, **strong**
+   (≥3.0 / ≥85% / A) +15, **good** (≥2.5 / ≥75% / B) +8, weak/missing +0
+   (encourage, don't punish a data gap). An exceptional profile with solid
+   language headroom reaches **100** on a well-fitting program. See 4.3;
+   tested in `applications/tests.py::AcademicStrengthScoringTests`.
 5. **Field-of-study taxonomy is hardcoded in the app.** The onboarding form's
    field chips (IT/Business/Design/Engineering) must match the Opintopolku
    catalogue's values; a `/api/v1/fields/` endpoint would remove the duplication.

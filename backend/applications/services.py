@@ -77,7 +77,43 @@ def _ielts_equivalent(student):
     return Decimal("0")  # took a test but scored below its lowest band
 
 
-def _score_program(student, program, ielts):
+# Academic strength → score points. Product decision (Awais, July 2026):
+# exceptional grades must move the number DRASTICALLY — ≥95% marks or GPA ≥3.5
+# pushes a well-fitting program to 100. Letters map to the closest Cambridge
+# band (A* ≈ 90%+). Weak/missing grades are simply +0 — the score encourages,
+# it doesn't punish a fresh profile for a data gap.
+def _academic_strength_points(student):
+    """Points the student's grades add to every program's score (0 if no
+    usable grades). Bands: exceptional +25 / strong +15 / good +8."""
+    scale, raw = student.grade_scale, (student.grades or "").strip()
+    if not scale or not raw:
+        return 0
+
+    if scale == Student.GradeScale.LETTER:
+        letter = raw.upper()
+        if letter in ("A*", "A+"):
+            return 25  # exceptional
+        if letter in ("A", "A-"):
+            return 15  # strong
+        if letter in ("B+", "B"):
+            return 8   # good
+        return 0
+
+    try:
+        value = Decimal(raw)
+    except Exception:
+        return 0
+    if scale == Student.GradeScale.PERCENTAGE:
+        tiers = ((Decimal(95), 25), (Decimal(85), 15), (Decimal(75), 8))
+    else:  # gpa_4
+        tiers = ((Decimal("3.5"), 25), (Decimal("3.0"), 15), (Decimal("2.5"), 8))
+    for threshold, points in tiers:
+        if value >= threshold:
+            return points
+    return 0
+
+
+def _score_program(student, program, ielts, academic_points):
     """Return (score 0–100, fit) for one candidate program."""
     score = Decimal(50)
 
@@ -87,6 +123,11 @@ def _score_program(student, program, ielts):
         else:
             margin = ielts - program.min_ielts_score
             score += min(margin * 20, Decimal(20))  # up to +20 for headroom
+
+    # Grades: same boost on every program — academic strength travels with the
+    # student. Exceptional (+25) + solid language headroom is what carries a
+    # well-fitting program to 100.
+    score += academic_points
 
     if program.acceptance_rate is not None:
         score += (program.acceptance_rate - 20) / 4  # ±: selective vs open
@@ -134,12 +175,13 @@ def match_programs_for_student(student_id):
         programs = programs.filter(tuition_fee_eur__lte=student.budget_eur_per_year)
 
     ielts = _ielts_equivalent(student)
+    academic_points = _academic_strength_points(student)
 
     with transaction.atomic():
         Match.objects.filter(student=student).delete()
         Match.objects.bulk_create(
             Match(student=student, program=p, score=score, fit=fit)
             for p in programs.select_related("university")
-            for score, fit in [_score_program(student, p, ielts)]
+            for score, fit in [_score_program(student, p, ielts, academic_points)]
         )
     return Match.objects.filter(student=student).count()
