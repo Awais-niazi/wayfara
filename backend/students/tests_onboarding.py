@@ -1,5 +1,4 @@
 from django.contrib.auth import get_user_model
-from django.core import mail
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
@@ -11,19 +10,11 @@ from .models import Student
 
 User = get_user_model()
 
-
-def otp_code_from_email():
-    """Pull the 6-digit code out of the most recent OTP email. Codes are
-    hashed at rest, so the email is the only place the plaintext exists —
-    which is exactly how a real user gets it."""
-    import re
-
-    match = re.search(r"\b(\d{6})\b", mail.outbox[-1].body)
-    assert match, "No 6-digit code found in the OTP email"
-    return match.group(1)
-
+# Onboarding is now authenticated: the user has already signed up with Supabase
+# (identity/credentials are theirs), so the form carries a username + profile,
+# never an email.
 FORM = {
-    "email": "applicant@example.com",
+    "username": "applicant",
     "study_level": "masters",
     "field_of_study": "IT",
     "grade_scale": "gpa_4",
@@ -61,6 +52,11 @@ def seed_programs():
 
 
 class OnboardingFlowTests(APITestCase):
+    def setUp(self):
+        # Stand in for the Supabase-authenticated caller.
+        self.user = User.objects.create_user(email="applicant@example.com")
+        self.client.force_authenticate(self.user)
+
     def submit_form(self, **overrides):
         with self.captureOnCommitCallbacks(execute=True):
             return self.client.post(reverse("onboarding"), {**FORM, **overrides}, format="json")
@@ -71,40 +67,25 @@ class OnboardingFlowTests(APITestCase):
         resp = self.submit_form()
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
 
-        # Account created passwordless; student profile stored
-        user = User.objects.get(email="applicant@example.com")
-        self.assertFalse(user.has_usable_password())
-        self.assertTrue(user.student.onboarding_completed)
+        # Username claimed on the account; student profile stored + onboarded.
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.username, "applicant")
+        self.assertTrue(self.user.student.onboarding_completed)
 
-        # OTP email went out
-        self.assertEqual(len(mail.outbox), 1)
-        self.assertIn("verification code", mail.outbox[0].body)
-
-        # Background matching ran (sync mode): filters applied
+        # Background matching ran (sync mode): filters applied.
         matched_programs = set(
-            Match.objects.filter(student=user.student).values_list("program_id", flat=True)
+            Match.objects.filter(student=self.user.student).values_list("program_id", flat=True)
         )
         self.assertIn(fits.pk, matched_programs)
         self.assertIn(reach.pk, matched_programs)
         self.assertNotIn(too_expensive.pk, matched_programs)
         self.assertNotIn(wrong_level.pk, matched_programs)
 
-        # Fit ratings: good headroom vs below-the-bar selective program
+        # Fit ratings: good headroom vs below-the-bar selective program.
         self.assertNotEqual(Match.objects.get(program=fits).fit, "reach")
         self.assertEqual(Match.objects.get(program=reach).fit, "reach")
 
-        # Verify OTP -> tokens
-        code = otp_code_from_email()
-        resp = self.client.post(
-            reverse("otp_verify"), {"email": "applicant@example.com", "code": code}
-        )
-        self.assertEqual(resp.status_code, status.HTTP_200_OK)
-        access = resp.data["access"]
-        user.refresh_from_db()
-        self.assertTrue(user.email_verified)
-
-        # Authenticated matches endpoint returns them, best first
-        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {access}")
+        # Authenticated matches endpoint returns them, best first.
         resp = self.client.get(reverse("matches"))
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         self.assertEqual(len(resp.data), 2)
@@ -112,12 +93,11 @@ class OnboardingFlowTests(APITestCase):
         self.assertEqual(scores, sorted(scores, reverse=True))
         self.assertEqual(resp.data[0]["university"], "Aalto University")
 
-    def test_resubmission_updates_profile_not_duplicate_account(self):
+    def test_resubmission_updates_profile_not_duplicate(self):
         seed_programs()
         self.submit_form()
         resp = self.submit_form(field_of_study="Computer Science", budget_eur_per_year=15000)
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(User.objects.filter(email="applicant@example.com").count(), 1)
         self.assertEqual(Student.objects.count(), 1)
         self.assertEqual(Student.objects.get().budget_eur_per_year, 15000)
 
@@ -133,28 +113,52 @@ class OnboardingFlowTests(APITestCase):
         matched = set(Match.objects.filter(student=student).values_list("program_id", flat=True))
         self.assertEqual(matched, {free.pk})
 
-    def test_wrong_otp_rejected_and_attempts_limited(self):
-        self.submit_form()
-        user = User.objects.get(email="applicant@example.com")
-        for _ in range(5):
-            resp = self.client.post(
-                reverse("otp_verify"), {"email": user.email, "code": "000000"}
-            )
-            self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
-        # Correct code now rejected too: attempt limit reached
-        code = otp_code_from_email()
-        resp = self.client.post(reverse("otp_verify"), {"email": user.email, "code": code})
-        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+    def test_onboarding_requires_auth(self):
+        self.client.force_authenticate(None)
+        resp = self.client.post(reverse("onboarding"), FORM, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    def test_otp_request_does_not_leak_account_existence(self):
-        resp = self.client.post(reverse("otp_request"), {"email": "nobody@example.com"})
-        self.assertEqual(resp.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(mail.outbox), 0)
+
+class UsernameTests(APITestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(email="applicant@example.com")
+        self.client.force_authenticate(self.user)
+
+    def _submit(self, **overrides):
+        return self.client.post(reverse("onboarding"), {**FORM, **overrides}, format="json")
+
+    def test_username_is_required(self):
+        payload = {k: v for k, v in FORM.items() if k != "username"}
+        resp = self.client.post(reverse("onboarding"), payload, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("username", resp.data)
+
+    def test_bad_format_rejected(self):
+        for bad in ("ab", "Has Spaces", "UPPER", "way-too-long-a-username", "no!"):
+            resp = self._submit(username=bad)
+            self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST, bad)
+            self.assertIn("username", resp.data)
+
+    def test_duplicate_username_rejected(self):
+        User.objects.create_user(email="other@example.com", username="taken")
+        resp = self._submit(username="taken")
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("username", resp.data)
+
+    def test_valid_username_saved_on_account(self):
+        resp = self._submit(username="wanderer_01")
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.username, "wanderer_01")
 
 
 class AcademicValidationTests(APITestCase):
     """Illogical academic values are rejected at onboarding — the whole form
-    fails, no account is created."""
+    fails and no Student profile is created."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(email="applicant@example.com")
+        self.client.force_authenticate(self.user)
 
     def _submit(self, **overrides):
         return self.client.post(reverse("onboarding"), {**FORM, **overrides}, format="json")
@@ -163,7 +167,7 @@ class AcademicValidationTests(APITestCase):
         resp = self._submit(**overrides)
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn(field, resp.data)
-        self.assertFalse(User.objects.filter(email="applicant@example.com").exists())
+        self.assertFalse(Student.objects.filter(user=self.user).exists())
 
     def test_ielts_score_above_9_rejected(self):
         self._assert_rejected("language_test_score", language_test="ielts", language_test_score="11")

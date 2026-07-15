@@ -1,12 +1,21 @@
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
+from accounts.serializers import username_field
 from wayfara.serializers import StrictModelSerializer, StrictSerializer
 
 from .models import Student, Task
 from .validators import validate_academic
 
 User = get_user_model()
+
+
+def _username_taken(value, exclude_user):
+    return (
+        User.objects.filter(username__iexact=value)
+        .exclude(pk=exclude_user.pk)
+        .exists()
+    )
 
 # The academic fields whose values are validated against each other
 # (grade value vs scale, test score vs test type, budget range).
@@ -36,14 +45,19 @@ class TaskStatusSerializer(StrictSerializer):
 
 
 class OnboardingSerializer(StrictModelSerializer):
-    """The Get Started form: email + profile in one anonymous submission."""
+    """The Get Started form: username + profile for the authenticated user.
 
-    email = serializers.EmailField(max_length=254)
+    Identity (email/credentials) already lives in Supabase — the request is
+    authenticated by its token, so onboarding only claims a username and
+    stores the academic profile.
+    """
+
+    username = username_field()
 
     class Meta:
         model = Student
         fields = [
-            "email",
+            "username",
             "study_level",
             "field_of_study",
             "grade_scale",
@@ -61,16 +75,20 @@ class OnboardingSerializer(StrictModelSerializer):
             "field_of_study": {"required": True},
         }
 
+    def validate_username(self, value):
+        if _username_taken(value, self.context["request"].user):
+            raise serializers.ValidationError("That username is taken.")
+        return value
+
     def validate(self, attrs):
         # Everything is present on create, so validate the payload directly.
         validate_academic(attrs)
         return attrs
 
     def create(self, validated_data):
-        email = validated_data.pop("email")
-        user = User.objects.filter(email__iexact=email).first()
-        if user is None:
-            user = User.objects.create_user(email=email)  # password=None -> unusable; OTP is the login
+        user = self.context["request"].user
+        user.username = validated_data.pop("username")
+        user.save(update_fields=["username"])
         student, _ = Student.objects.update_or_create(
             user=user, defaults={**validated_data, "onboarding_completed": True}
         )
@@ -85,6 +103,7 @@ class ProfileSerializer(StrictModelSerializer):
     """
 
     email = serializers.EmailField(source="user.email", read_only=True)
+    username = username_field(source="user.username", required=False)
     first_name = serializers.CharField(
         source="user.first_name", required=False, allow_blank=True, max_length=150
     )
@@ -92,6 +111,11 @@ class ProfileSerializer(StrictModelSerializer):
         source="user.last_name", required=False, allow_blank=True, max_length=150
     )
     tier = serializers.CharField(source="user.tier", read_only=True)
+
+    def validate_username(self, value):
+        if _username_taken(value, self.instance.user):
+            raise serializers.ValidationError("That username is taken.")
+        return value
 
     def validate(self, attrs):
         # PATCH is partial: validate each academic field against its effective
@@ -120,6 +144,7 @@ class ProfileSerializer(StrictModelSerializer):
         fields = [
             "id",
             "email",
+            "username",
             "first_name",
             "last_name",
             "tier",

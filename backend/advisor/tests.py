@@ -1,10 +1,8 @@
+from unittest.mock import patch
+
 from django.contrib.auth import get_user_model
-from django.contrib.auth.tokens import default_token_generator
-from django.core import mail
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
-from django.utils.encoding import force_bytes
-from django.utils.http import urlsafe_base64_encode
 from rest_framework import status
 from rest_framework.test import APITestCase
 
@@ -15,62 +13,33 @@ from .services import get_thread_for_student, post_message
 User = get_user_model()
 
 
-class AdvisorActivationTests(APITestCase):
-    def _make_advisor(self, email="adv@example.com"):
-        user = User.objects.create_user(email=email, role=User.Role.ADVISOR)
-        user.set_unusable_password()
-        user.save(update_fields=["password"])
-        return user
+class AdvisorProvisioningTests(APITestCase):
+    """Advisors are minted through Supabase (invite) + a local advisor row;
+    they set their own password via Supabase, never through Django."""
 
-    def test_admin_action_sends_link_and_disables_password_login(self):
-        # Simulate the admin provisioning action end result.
-        advisor = self._make_advisor()
-        from advisor.services import send_advisor_activation
+    @patch("accounts.supabase.invite_user", return_value="11111111-1111-1111-1111-111111111111")
+    def test_provision_creates_supabase_backed_advisor(self, mock_invite):
+        from accounts.supabase import provision_advisor
 
-        send_advisor_activation(advisor)
-        self.assertEqual(len(mail.outbox), 1)
-        self.assertIn("/activate/", mail.outbox[0].body)
-        self.assertFalse(advisor.has_usable_password())
+        user, created = provision_advisor("new.advisor@example.com")
+        mock_invite.assert_called_once_with("new.advisor@example.com")
+        self.assertTrue(created)
+        self.assertEqual(user.role, User.Role.ADVISOR)
+        self.assertEqual(str(user.supabase_id), "11111111-1111-1111-1111-111111111111")
+        self.assertFalse(user.has_usable_password())  # password lives in Supabase
 
-    def test_activation_sets_password_and_is_single_use(self):
-        advisor = self._make_advisor()
-        uid = urlsafe_base64_encode(force_bytes(advisor.pk))
-        token = default_token_generator.make_token(advisor)
-        url = reverse("advisor_activate")
+    @patch("accounts.supabase.invite_user")
+    def test_promoting_existing_supabase_user_skips_reinvite(self, mock_invite):
+        from accounts.supabase import provision_advisor
 
-        resp = self.client.post(
-            url, {"uid": uid, "token": token, "password": "AdvisorPass!2026"}
+        User.objects.create(
+            email="student@example.com",
+            supabase_id="22222222-2222-2222-2222-222222222222",
         )
-        self.assertEqual(resp.status_code, status.HTTP_200_OK)
-        advisor.refresh_from_db()
-        self.assertTrue(advisor.check_password("AdvisorPass!2026"))
-
-        # Token is spent — setting the password changed the hash it derives from.
-        resp = self.client.post(
-            url, {"uid": uid, "token": token, "password": "Another!2026"}
-        )
-        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
-
-    def test_activation_rejects_weak_password(self):
-        advisor = self._make_advisor()
-        uid = urlsafe_base64_encode(force_bytes(advisor.pk))
-        token = default_token_generator.make_token(advisor)
-        resp = self.client.post(
-            reverse("advisor_activate"), {"uid": uid, "token": token, "password": "123"}
-        )
-        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
-
-    def test_activation_link_cannot_target_a_student(self):
-        student_user = User.objects.create_user(email="s@example.com")  # role=student
-        uid = urlsafe_base64_encode(force_bytes(student_user.pk))
-        token = default_token_generator.make_token(student_user)
-        resp = self.client.post(
-            reverse("advisor_activate"),
-            {"uid": uid, "token": token, "password": "TryToHijack!2026"},
-        )
-        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
-        student_user.refresh_from_db()
-        self.assertFalse(student_user.check_password("TryToHijack!2026"))
+        user, created = provision_advisor("student@example.com")
+        mock_invite.assert_not_called()  # already has an identity
+        self.assertFalse(created)
+        self.assertEqual(user.role, User.Role.ADVISOR)
 
 
 class AdvisorCaseloadTests(APITestCase):

@@ -1,7 +1,6 @@
 from django.http import FileResponse, Http404
-from rest_framework import generics, permissions, status
+from rest_framework import generics, status
 from rest_framework.response import Response
-from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from accounts.permissions import HasAdvisorAccess, IsAdvisor
@@ -9,14 +8,12 @@ from students.models import Document, Student
 
 from .models import AdvisorMessage
 from .serializers import (
-    ActivateSerializer,
     AdvisorMessageSerializer,
     AdvisorStudentDetailSerializer,
     AdvisorStudentListSerializer,
     SendMessageSerializer,
 )
 from .services import (
-    activate_advisor,
     get_thread_for_student,
     mark_read_by,
     post_message,
@@ -33,27 +30,6 @@ def _send_from(serializer, thread, sender, request):
         audio_duration=serializer.validated_data.get("audio_duration_seconds"),
     )
     return AdvisorMessageSerializer(message, context={"request": request}).data
-
-
-class ActivateView(APIView):
-    """Set an advisor's password from the one-time invite link. Public: the
-    token IS the credential. Throttled to blunt token brute-forcing."""
-
-    permission_classes = [permissions.AllowAny]
-    throttle_classes = [ScopedRateThrottle]
-    throttle_scope = "advisor_activate"
-
-    def post(self, request):
-        serializer = ActivateSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        user, error = activate_advisor(
-            serializer.validated_data["uid"],
-            serializer.validated_data["token"],
-            serializer.validated_data["password"],
-        )
-        if error:
-            return Response({"detail": error}, status=status.HTTP_400_BAD_REQUEST)
-        return Response({"detail": "Account activated. You can now log in."})
 
 
 class AssignedStudentsView(generics.ListAPIView):

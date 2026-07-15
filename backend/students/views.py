@@ -1,11 +1,10 @@
 from django.db import transaction
 from django.utils import timezone
-from rest_framework import generics, permissions, serializers, status
+from rest_framework import generics, serializers, status
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
-from accounts.services import issue_and_send_otp
 from applications.tasks import match_programs_task
 
 from .models import Student, Task
@@ -19,30 +18,27 @@ from .serializers import (
 
 
 class OnboardingView(APIView):
-    """The Get Started form: anonymous profile submission.
+    """The Get Started form: authenticated profile submission.
 
-    Creates the account (passwordless) + Student, kicks off university
-    matching in the background, and emails an OTP so the user verifies
-    while matching runs.
+    The user has already signed up with Supabase (its token authenticates this
+    request); onboarding claims a username, stores the Student profile, and
+    kicks off university matching + timeline generation in the background.
     """
 
-    permission_classes = [permissions.AllowAny]
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "onboarding"
 
     def post(self, request):
-        serializer = OnboardingSerializer(data=request.data)
+        serializer = OnboardingSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
         with transaction.atomic():
             student = serializer.save()
             transaction.on_commit(lambda: match_programs_task.delay(student.pk))
             transaction.on_commit(lambda: generate_timeline_task.delay(student.pk))
-        issue_and_send_otp(student.user)
         return Response(
             {
-                "detail": "We're matching universities to your profile. "
-                "Check your email for your verification code.",
-                "email": student.user.email,
+                "detail": "We're matching universities to your profile.",
+                "username": student.user.username,
             },
             status=status.HTTP_201_CREATED,
         )

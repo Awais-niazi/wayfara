@@ -1,8 +1,5 @@
 from django.contrib import admin
 from django.urls import include, path
-from rest_framework_simplejwt.views import TokenRefreshView
-
-from accounts.views import PasswordLoginView
 
 from .views import HealthCheckView
 
@@ -22,6 +19,4 @@ urlpatterns = [
     path(API_V1, include("students.urls")),
     path(API_V1, include("applications.urls")),
     path(API_V1, include("universities.urls")),
-    path(f"{API_V1}auth/token/", PasswordLoginView.as_view(), name="token_obtain_pair"),
-    path(f"{API_V1}auth/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
 ]

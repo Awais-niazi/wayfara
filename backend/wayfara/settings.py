@@ -5,7 +5,6 @@ Environment-driven configuration. Set DATABASE_URL to use PostgreSQL
 with zero setup.
 """
 
-from datetime import timedelta
 from pathlib import Path
 import os
 import sys
@@ -46,7 +45,6 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "rest_framework",
-    "rest_framework_simplejwt.token_blacklist",
     "corsheaders",
     "django_celery_beat",
     "accounts",
@@ -121,12 +119,13 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 REST_FRAMEWORK = {
+    # Identity is Supabase's; Django only verifies the bearer token it issues.
     "DEFAULT_AUTHENTICATION_CLASSES": (
-        "rest_framework_simplejwt.authentication.JWTAuthentication",
+        "accounts.authentication.SupabaseJWTAuthentication",
     ),
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
-    # Safety-net throttles on everything; the abuse-prone public endpoints
-    # (OTP, register, onboarding) carry much tighter scoped rates below.
+    # Safety-net throttles on everything; onboarding (the one authenticated-
+    # but-abuse-prone write) carries a tighter scoped rate below.
     "DEFAULT_THROTTLE_CLASSES": (
         "rest_framework.throttling.AnonRateThrottle",
         "rest_framework.throttling.UserRateThrottle",
@@ -134,17 +133,7 @@ REST_FRAMEWORK = {
     "DEFAULT_THROTTLE_RATES": {
         "anon": "100/hour",
         "user": "1000/hour",
-        # Per-IP scoped rates
-        "register": "10/hour",
         "onboarding": "10/hour",
-        "otp_request": "10/hour",
-        "otp_verify": "20/hour",  # model also caps 5 attempts per code
-        "password_login": "20/hour",  # blunts credential stuffing per IP
-        "set_password": "10/hour",
-        # Per-target-inbox rate: stops many-IP spamming of one mailbox
-        "otp_email": "5/hour",
-        # Advisor invite-link password set — blunts token brute-forcing
-        "advisor_activate": "20/hour",
     },
 }
 
@@ -159,13 +148,19 @@ if TESTING:
     # dominates the suite runtime otherwise. Never used outside `test`.
     PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
 
-SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60),
-    "REFRESH_TOKEN_LIFETIME": timedelta(days=30),
-    "ROTATE_REFRESH_TOKENS": True,
-    # Rotated-out refresh tokens are dead immediately; logout blacklists too.
-    "BLACKLIST_AFTER_ROTATION": True,
-}
+# ─── Supabase (identity authority) ───────────────────────────────────────────
+# The mobile app authenticates directly against Supabase; Django verifies the
+# access token it forwards (accounts.authentication.SupabaseJWTAuthentication)
+# and provisions advisors via the Admin API (accounts.supabase). The anon key
+# is client-side only and lives in the mobile app config, not here.
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
+SUPABASE_JWT_SECRET = os.environ.get("SUPABASE_JWT_SECRET", "")
+SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+if not DEBUG and not TESTING and not (SUPABASE_URL and SUPABASE_JWT_SECRET):
+    raise ImproperlyConfigured(
+        "SUPABASE_URL and SUPABASE_JWT_SECRET must be set in production — "
+        "without them no request can authenticate."
+    )
 
 CORS_ALLOWED_ORIGINS = os.environ.get(
     "CORS_ALLOWED_ORIGINS", "http://localhost:8081,http://localhost:19006"
@@ -228,18 +223,36 @@ CELERY_TIMEZONE = os.environ.get("CELERY_TIMEZONE", "Europe/Helsinki")
 CELERY_ENABLE_UTC = True
 CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 
-EMAIL_BACKEND = os.environ.get(
-    "DJANGO_EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend"
-)
+# ─── Email (app mail: reminders, alerts) ─────────────────────────────────────
+# Supabase sends its own auth mail (confirmation/OTP) via its dashboard SMTP
+# config. Django's own mail should point at the SAME provider (Resend / SES /
+# etc.) so everything is deliverable and on-brand. Dev defaults to the console
+# backend; production must configure real SMTP or refuse to boot.
+_CONSOLE_EMAIL = "django.core.mail.backends.console.EmailBackend"
+EMAIL_HOST = os.environ.get("EMAIL_HOST", "")
+if EMAIL_HOST:
+    EMAIL_BACKEND = os.environ.get(
+        "DJANGO_EMAIL_BACKEND", "django.core.mail.backends.smtp.EmailBackend"
+    )
+    EMAIL_PORT = int(os.environ.get("EMAIL_PORT", "587"))
+    EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
+    EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
+    EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS", "true").lower() == "true"
+else:
+    EMAIL_BACKEND = os.environ.get("DJANGO_EMAIL_BACKEND", _CONSOLE_EMAIL)
+
+if not DEBUG and not TESTING and EMAIL_BACKEND == _CONSOLE_EMAIL:
+    raise ImproperlyConfigured(
+        "Configure SMTP in production (EMAIL_HOST + credentials) — the console "
+        "backend drops mail, and OTP is a login path."
+    )
+
 DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "Wayfara <hello@wayfara.app>")
 
 # Where critical-change review alerts are emailed.
 SCRAPER_ALERT_EMAIL = os.environ.get("SCRAPER_ALERT_EMAIL", DEFAULT_FROM_EMAIL)
 
-OTP_LIFETIME_MINUTES = 10
-OTP_MAX_ATTEMPTS = 5
-
-# Base URL of the advisor web console; activation links are built off it.
+# Base URL of the advisor web console (Supabase-authenticated; used for links).
 ADVISOR_CONSOLE_URL = os.environ.get("ADVISOR_CONSOLE_URL", "http://localhost:5173/advisor")
 
 # Expo push notifications. No-ops without registered device tokens, so it is

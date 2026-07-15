@@ -1,14 +1,15 @@
-import secrets
-
 from django.conf import settings
-from django.contrib.auth.hashers import check_password, make_password
 from django.contrib.auth.models import AbstractUser, BaseUserManager
+from django.core.validators import RegexValidator
 from django.db import models
-from django.utils import timezone
 
 
 class UserManager(BaseUserManager):
-    """Manager for email-based authentication (no username)."""
+    """Manager for email-based authentication (no username login).
+
+    `username` exists as a public handle (see below) but is never the login
+    key — identity is the email, and credentials live in Supabase.
+    """
 
     use_in_migrations = True
 
@@ -31,11 +32,22 @@ class UserManager(BaseUserManager):
         return self._create_user(email, password, **extra_fields)
 
 
-class User(AbstractUser):
-    """Auth + entitlement only. Domain profile lives on students.Student.
+# Public handle: lowercase letters/digits/underscore, 3–20 chars. Mirrored on
+# the client (mobile/lib/profileOptions.ts) and enforced here as the authority.
+username_validator = RegexValidator(
+    r"^[a-z0-9_]{3,20}$",
+    "Username must be 3–20 characters: lowercase letters, numbers, or underscore.",
+)
 
-    `tier` sits here (not on Student) because it is account-level: the payment
-    webhook flips it, and it is never writable through the API.
+
+class User(AbstractUser):
+    """Auth mirror + entitlement. Domain profile lives on students.Student.
+
+    Identity now belongs to Supabase: credentials, sessions, OTP, and token
+    issuance are all theirs. This row is a local shadow keyed by `supabase_id`
+    (the Supabase user UUID), created just-in-time the first time a valid
+    Supabase token is seen. `tier`/`role`/`username` are ours — account-level
+    fields Supabase doesn't know about.
     """
 
     class Tier(models.TextChoices):
@@ -47,11 +59,22 @@ class User(AbstractUser):
         STUDENT = "student", "Student"
         ADVISOR = "advisor", "Advisor"
 
-    username = None
+    username = models.CharField(
+        max_length=20,
+        unique=True,
+        null=True,
+        blank=True,
+        validators=[username_validator],
+        help_text="Public handle shown on the dashboard. Unique, editable.",
+    )
     email = models.EmailField("email address", unique=True)
+    # The Supabase auth user UUID. Null only for the brief window before first
+    # login provisions it (and for fixtures/tests using force_authenticate).
+    supabase_id = models.UUIDField(unique=True, null=True, blank=True)
     tier = models.CharField(max_length=10, choices=Tier.choices, default=Tier.FREE)
-    # Advisors are provisioned by a superuser in admin — there is no advisor
-    # signup. Staff/admin access stays on is_staff/is_superuser as usual.
+    # Advisors are provisioned by a superuser (management command / admin) —
+    # there is no advisor self-signup. Staff/admin access stays on
+    # is_staff/is_superuser as usual.
     role = models.CharField(max_length=10, choices=Role.choices, default=Role.STUDENT)
     email_verified = models.BooleanField(default=False)
 
@@ -90,47 +113,3 @@ class DeviceToken(models.Model):
 
     def __str__(self):
         return f"{self.user} · {self.platform or 'device'}"
-
-
-class EmailOTP(models.Model):
-    """One-time 6-digit code for passwordless onboarding/login.
-
-    The code is stored only as a salted hash — a DB-read attacker can't lift a
-    live code to hijack a login. The plaintext exists just long enough to email
-    it, carried on a transient attribute (`plaintext_code`) that is never
-    persisted. Issuing a new code invalidates all previous unused codes.
-    """
-
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="otps")
-    code_hash = models.CharField(max_length=128)
-    expires_at = models.DateTimeField()
-    attempts = models.PositiveSmallIntegerField(default=0)
-    used = models.BooleanField(default=False)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        indexes = [models.Index(fields=["user", "used", "expires_at"])]
-
-    @classmethod
-    def issue(cls, user):
-        cls.objects.filter(user=user, used=False).update(used=True)
-        plaintext = f"{secrets.randbelow(1_000_000):06d}"
-        otp = cls.objects.create(
-            user=user,
-            code_hash=make_password(plaintext),
-            expires_at=timezone.now() + timezone.timedelta(minutes=settings.OTP_LIFETIME_MINUTES),
-        )
-        # Transient: the only moment the plaintext exists, for the email send.
-        otp.plaintext_code = plaintext
-        return otp
-
-    def check_code(self, code):
-        """Constant-time (check_password) so a wrong code can't be timed out."""
-        return check_password(code, self.code_hash)
-
-    def is_valid_now(self):
-        return (
-            not self.used
-            and self.attempts < settings.OTP_MAX_ATTEMPTS
-            and self.expires_at > timezone.now()
-        )

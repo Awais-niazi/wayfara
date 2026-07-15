@@ -1,7 +1,6 @@
 from django.urls import path
 
 from .views import (
-    ActivateView,
     AssignedStudentDetailView,
     AssignedStudentsView,
     DocumentDownloadView,
@@ -11,7 +10,6 @@ from .views import (
 )
 
 urlpatterns = [
-    path("advisor/activate/", ActivateView.as_view(), name="advisor_activate"),
     path("advisor/students/", AssignedStudentsView.as_view(), name="advisor_students"),
     path(
         "advisor/students/<int:pk>/",
