@@ -32,7 +32,9 @@ TEMPLATES = [
      A.APPLICATION_DEADLINE, -30, False),
 
     # ── Phase 2 — Application preparation (anchor: application deadline) ──
-    (2, 1, "Book your IELTS/TOEFL test (if not taken)",
+    # Conditional (see CONDITIONS below): skipped when the student already
+    # has a test score.
+    (2, 1, "Book your IELTS/TOEFL test",
      "Test dates fill up and results take ~2 weeks. Without a valid score your application cannot be submitted.",
      A.APPLICATION_DEADLINE, -90, True),
     (2, 2, "Collect transcripts and certificates",
@@ -175,6 +177,13 @@ TEMPLATES = [
 ]
 
 
+# Profile-dependent templates, keyed on (phase, order). Everything else
+# applies to every student.
+CONDITIONS = {
+    (2, 1): TaskTemplate.Condition.LANGUAGE_TEST_PENDING,  # book your test
+}
+
+
 class Command(BaseCommand):
     help = "Seed (or update) the journey task templates"
 
@@ -191,6 +200,7 @@ class Command(BaseCommand):
                     "offset_days": offset,
                     "is_critical": critical,
                     "is_active": True,
+                    "condition": CONDITIONS.get((phase, order), ""),
                 },
             )
             created += was_created

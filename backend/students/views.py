@@ -59,6 +59,11 @@ MATCH_RELEVANT_FIELDS = (
     "intake",
 )
 
+# Fields the timeline engine reads: intake anchors every due date, and
+# language_test_status gates the conditional "book your test" task. Regen
+# preserves completed/skipped tasks — only pending ones are rebuilt.
+TIMELINE_RELEVANT_FIELDS = ("language_test_status", "intake", "intake_year")
+
 
 class ProfileView(generics.RetrieveUpdateAPIView):
     serializer_class = ProfileSerializer
@@ -68,14 +73,19 @@ class ProfileView(generics.RetrieveUpdateAPIView):
         return student
 
     def perform_update(self, serializer):
-        # Re-run matching when (and only when) a field the engine reads
-        # changed — the Profile screen promises "changing these updates your
-        # matches", and a name edit shouldn't churn the match table.
+        # Re-run matching / timeline generation when (and only when) a field
+        # the respective engine reads changed — the Profile screen promises
+        # "changing these updates your matches", and a student who just added
+        # a test score must stop being told to book the test. A name edit
+        # churns neither.
         student = serializer.instance
-        before = {f: getattr(student, f) for f in MATCH_RELEVANT_FIELDS}
+        watched = set(MATCH_RELEVANT_FIELDS) | set(TIMELINE_RELEVANT_FIELDS)
+        before = {f: getattr(student, f) for f in watched}
         serializer.save()
         if any(getattr(student, f) != before[f] for f in MATCH_RELEVANT_FIELDS):
             transaction.on_commit(lambda: match_programs_task.delay(student.pk))
+        if any(getattr(student, f) != before[f] for f in TIMELINE_RELEVANT_FIELDS):
+            transaction.on_commit(lambda: generate_timeline_task.delay(student.pk))
 
 
 class TaskListView(generics.ListAPIView):

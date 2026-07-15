@@ -34,6 +34,15 @@ def intake_start_date(student):
     return date(student.intake_year, month, day)
 
 
+def _template_applies(tmpl, student):
+    """Profile-dependent templates: skip a task the student doesn't need.
+    A student who already provided a test score must never be told to go
+    book the test."""
+    if tmpl.condition == TaskTemplate.Condition.LANGUAGE_TEST_PENDING:
+        return student.language_test_status != Student.LanguageTestStatus.TAKEN
+    return True
+
+
 def generate_timeline(student_id):
     """(Re)generate the student's Tasks + Reminders from active templates.
 
@@ -59,6 +68,8 @@ def generate_timeline(student_id):
         created = 0
         for tmpl in TaskTemplate.objects.filter(is_active=True).order_by("phase", "order"):
             if tmpl.pk in touched_template_ids:
+                continue
+            if not _template_applies(tmpl, student):
                 continue
             due = (
                 anchors[tmpl.offset_anchor] + timedelta(days=tmpl.offset_days)

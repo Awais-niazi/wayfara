@@ -49,6 +49,55 @@ class TimelineEngineTests(APITestCase):
         student = make_student(intake="", intake_year=None)
         self.assertEqual(generate_timeline(student.pk), 0)
 
+    def test_book_test_task_skipped_when_score_already_given(self):
+        # A student who provided a score must never be told to book the test.
+        student = make_student(
+            language_test_status="taken", language_test="ielts",
+            language_test_score="7.0",
+        )
+        generate_timeline(student.pk)
+        self.assertFalse(student.tasks.filter(title__startswith="Book your IELTS").exists())
+        # Everyone else still gets it (status blank or booked/not_taken).
+        other = make_student(email="pending@example.com", language_test_status="not_taken")
+        generate_timeline(other.pk)
+        self.assertTrue(other.tasks.filter(title__startswith="Book your IELTS").exists())
+
+    def test_adding_score_in_profile_removes_pending_book_test_task(self):
+        student = make_student(language_test_status="not_taken")
+        generate_timeline(student.pk)
+        book = student.tasks.get(title__startswith="Book your IELTS")
+        self.assertEqual(book.reminders.count(), 3)  # critical → 14/7/3-day pings
+
+        self.client.force_authenticate(student.user)
+        with self.captureOnCommitCallbacks(execute=True):
+            resp = self.client.patch(
+                reverse("profile"),
+                {"language_test_status": "taken", "language_test": "ielts",
+                 "language_test_score": "7.0"},
+            )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        # Task AND its queued reminders are gone; the rest of the plan remains.
+        self.assertFalse(student.tasks.filter(title__startswith="Book your IELTS").exists())
+        self.assertFalse(Reminder.objects.filter(task=book).exists())
+        self.assertTrue(student.tasks.exists())
+
+    def test_completed_book_test_task_survives_score_arrival(self):
+        # If they marked it done before entering the score, keep the history.
+        student = make_student(language_test_status="booked")
+        generate_timeline(student.pk)
+        book = student.tasks.get(title__startswith="Book your IELTS")
+        book.status = Task.Status.COMPLETED
+        book.save(update_fields=["status"])
+
+        student.language_test_status = "taken"
+        student.language_test = "ielts"
+        student.language_test_score = "6.5"
+        student.save()
+        generate_timeline(student.pk)
+        self.assertTrue(
+            student.tasks.filter(pk=book.pk, status=Task.Status.COMPLETED).exists()
+        )
+
     def test_reminders_only_for_future_critical_tasks(self):
         student = make_student(intake_year=2030)  # everything far in the future
         generate_timeline(student.pk)

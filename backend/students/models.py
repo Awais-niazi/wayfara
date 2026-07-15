@@ -165,6 +165,13 @@ class TaskTemplate(models.Model):
         INTAKE_START = "intake_start", "Intake start date"
         ARRIVAL = "arrival", "Arrival in Finland"
 
+    class Condition(models.TextChoices):
+        # Blank = task applies to everyone.
+        LANGUAGE_TEST_PENDING = (
+            "language_test_pending",
+            "Only while the student has no test score (status ≠ taken)",
+        )
+
     phase = models.PositiveSmallIntegerField(help_text="Journey phase 0–6")
     title = models.CharField(max_length=200)
     description = models.TextField(blank=True)
@@ -178,6 +185,12 @@ class TaskTemplate(models.Model):
     )
     is_critical = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
+    # Profile-dependent tasks: the timeline engine skips a template whose
+    # condition the student doesn't meet (e.g. "book your test" is pointless
+    # for someone who already gave us a score).
+    condition = models.CharField(
+        max_length=30, choices=Condition.choices, blank=True, default=""
+    )
 
     class Meta:
         ordering = ["phase", "order"]
