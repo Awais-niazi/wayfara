@@ -355,14 +355,24 @@ to iterate and unit-test.
 
 - **Matching engine** (`applications/services.py`). Filters active `Program`s
   against the `Student` profile (degree level, `field_of_study` icontains,
-  budget vs tuition) and scores each 0–100 with a **Safety / Good-fit / Reach**
-  rating. Signals include IELTS headroom over `min_ielts_score`, acceptance-rate
-  selectivity, intake match, and tuition-free bonus. Produces `Match` rows
-  (distinct from `Application`, which is user *intent*). Served best-first by
-  `/api/v1/matches/`. The student's English score is normalised to an **IELTS
-  band via a concordance table** (`_ielts_equivalent`) before it's compared to
-  `min_ielts_score` — without that, a TOEFL 100 would parse as "100" and clear
-  every requirement in the catalogue.
+  budget vs tuition, **application window still open** — a passed
+  `application_deadline` disqualifies outright; unknown deadlines stay) and
+  scores each 0–100 with a **Safety / Good-fit / Reach** rating. Signals
+  include IELTS headroom over `min_ielts_score`, acceptance-rate selectivity,
+  intake match, and tuition-free bonus. Produces `Match` rows (distinct from
+  `Application`, which is user *intent*). Served best-first by
+  `/api/v1/matches/`. Accuracy rules (July 2026 scan):
+  - **Budget:** blank and `0` both mean *tuition-free only* (the validator's
+    contract); a positive budget uses `lte`, which also drops **null-fee**
+    programs — affordability is never promised for an unknown price.
+  - **English score** is normalised to an **IELTS band via a concordance
+    table** (`_ielts_equivalent`) before comparison — without that a TOEFL 100
+    would parse as "100" and clear every requirement. A lingering score is
+    **not credited** when `language_test_status` is booked/not-taken.
+  - **Re-match on profile edit:** `PATCH /profile/` re-runs matching (on
+    commit) when any engine-read field changed (`MATCH_RELEVANT_FIELDS` in
+    `students/views.py`) — the match list always describes the *current*
+    profile; name-only edits don't churn it. Tested in `applications/tests.py`.
 - **Timeline engine** (`students/services.py`). Instantiates admin-editable
   `TaskTemplate`s into per-student `Task`s with concrete `due_date`s computed
   **backwards from anchors** (intake start, application/offer deadlines, visa
@@ -444,7 +454,7 @@ no longer exposes any anonymous auth endpoints.
 | `GET /me/` | Session bootstrap (username, role, tier, verified, onboarding_complete) |
 | `POST /auth/logout/` | Prune this device's push token (session revocation is Supabase `signOut()`) |
 | `POST\|DELETE /devices/` | Register / deregister an Expo push token |
-| `GET\|PATCH /profile/` | Read/update the onboarding profile (incl. username) |
+| `GET\|PATCH /profile/` | Read/update the onboarding profile (incl. username); match-relevant edits re-run matching |
 | `GET /matches/` | University recommendations, best fit first |
 | `GET /tasks/` (`?phase=N`) · `POST /tasks/<id>/status/` | Journey plan + status changes |
 | `GET /universities/` · `GET /universities/<id>/` | Catalogue (cached, public) |

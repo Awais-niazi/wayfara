@@ -3,11 +3,15 @@
 Filters active programs against the student's onboarding profile and scores
 each one into a Match with a Safety / Good fit / Reach rating. Deliberately a
 plain function so the heuristics are easy to iterate on and unit-test.
+
+Runs on onboarding AND whenever a match-relevant profile field changes
+(students/views.py) — a match list must never describe last month's profile.
 """
 
 from decimal import Decimal
 
 from django.db import transaction
+from django.utils import timezone
 
 from students.models import Student
 from universities.models import Program
@@ -49,6 +53,13 @@ def _ielts_equivalent(student):
     """The student's English level as an IELTS band, converting TOEFL/PTE/
     Duolingo via concordance. None if no usable score. Without this a TOEFL 100
     would parse as '100' and clear every IELTS requirement in the catalogue."""
+    # A student who flips status back to booked/not-taken may leave a stale
+    # score behind (the validator ignores it there) — don't credit it.
+    if student.language_test_status in (
+        Student.LanguageTestStatus.NOT_TAKEN,
+        Student.LanguageTestStatus.BOOKED,
+    ):
+        return None
     raw = (student.language_test_score or "").strip()
     if not raw:
         return None
@@ -106,14 +117,21 @@ def match_programs_for_student(student_id):
     student = Student.objects.get(pk=student_id)
 
     programs = Program.objects.filter(is_active=True, university__is_active=True)
+    # A closed application window disqualifies a program outright — recommending
+    # it would be actively harmful advice. Unknown deadlines stay in (a data gap
+    # is not a fact about the program).
+    programs = programs.exclude(application_deadline__lt=timezone.localdate())
     if student.study_level:
         programs = programs.filter(degree_level=STUDY_LEVEL_TO_DEGREE[student.study_level])
     if student.field_of_study:
         programs = programs.filter(field_of_study__icontains=student.field_of_study)
-    if student.budget_eur_per_year is None:
+    # Budget: blank AND 0 both mean "tuition-free only" (the validator's
+    # contract). A positive budget uses lte, which also drops null-fee rows —
+    # we can't promise affordability for a program whose price we don't know.
+    if not student.budget_eur_per_year:
         programs = programs.filter(tuition_fee_eur=0)
     else:
-        programs = programs.exclude(tuition_fee_eur__gt=student.budget_eur_per_year)
+        programs = programs.filter(tuition_fee_eur__lte=student.budget_eur_per_year)
 
     ielts = _ielts_equivalent(student)
 

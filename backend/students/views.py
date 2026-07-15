@@ -44,12 +44,35 @@ class OnboardingView(APIView):
         )
 
 
+# Profile fields the matching engine actually reads — an edit to any of these
+# makes the current match list describe a profile that no longer exists.
+MATCH_RELEVANT_FIELDS = (
+    "study_level",
+    "field_of_study",
+    "budget_eur_per_year",
+    "language_test_status",
+    "language_test",
+    "language_test_score",
+    "intake",
+)
+
+
 class ProfileView(generics.RetrieveUpdateAPIView):
     serializer_class = ProfileSerializer
 
     def get_object(self):
         student, _ = Student.objects.get_or_create(user=self.request.user)
         return student
+
+    def perform_update(self, serializer):
+        # Re-run matching when (and only when) a field the engine reads
+        # changed — the Profile screen promises "changing these updates your
+        # matches", and a name edit shouldn't churn the match table.
+        student = serializer.instance
+        before = {f: getattr(student, f) for f in MATCH_RELEVANT_FIELDS}
+        serializer.save()
+        if any(getattr(student, f) != before[f] for f in MATCH_RELEVANT_FIELDS):
+            transaction.on_commit(lambda: match_programs_task.delay(student.pk))
 
 
 class TaskListView(generics.ListAPIView):
