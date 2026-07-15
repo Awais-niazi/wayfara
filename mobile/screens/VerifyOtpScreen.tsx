@@ -1,8 +1,9 @@
 /**
  * 02b — VERIFY CODE
- * Six-digit OTP entry. Verifying exchanges email + code for JWT tokens and
- * signs the session in (the root navigator then switches to the Home stack).
- * The same screen serves onboarding activation and returning-user login.
+ * Six-digit email code, verified with Supabase. On the "signup" path it also
+ * runs the final onboarding call (storing the profile + starting matching)
+ * once the session exists; on the "login" path it just refreshes the session.
+ * Either way the root navigator then switches to the Home stack.
  */
 import React, { useRef, useState } from "react";
 import {
@@ -20,7 +21,8 @@ import { colors, fonts } from "../theme";
 import { PrimaryButton } from "../components/ui";
 import { FormError } from "../components/form";
 import { ChevronLeftIcon } from "../components/icons";
-import { requestOtp, verifyOtp } from "../lib/api";
+import { firstErrorMessage, submitOnboarding } from "../lib/api";
+import { supabase } from "../lib/supabase";
 import { useAuth } from "../context/AuthContext";
 import type { RootStackParamList } from "../navigation/types";
 
@@ -29,8 +31,8 @@ type Props = NativeStackScreenProps<RootStackParamList, "VerifyOtp">;
 const CODE_LENGTH = 6;
 
 export default function VerifyOtpScreen({ navigation, route }: Props) {
-  const { email } = route.params;
-  const { signIn } = useAuth();
+  const { email, mode, onboarding } = route.params;
+  const { refresh } = useAuth();
   const [code, setCode] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -44,11 +46,24 @@ export default function VerifyOtpScreen({ navigation, route }: Props) {
     setSubmitting(true);
     setError(null);
     try {
-      const tokens = await verifyOtp(email, value);
-      await signIn(tokens); // flips the navigator to the Home stack
-    } catch {
-      setError("Invalid or expired code. Check your email and try again.");
-      setCode("");
+      const { error: verifyError } = await supabase.auth.verifyOtp({
+        email,
+        token: value,
+        type: mode === "signup" ? "signup" : "email",
+      });
+      if (verifyError) {
+        setError("Invalid or expired code. Check your email and try again.");
+        setCode("");
+        setSubmitting(false);
+        return;
+      }
+      // Session now exists. On signup, finish onboarding before flipping to Home.
+      if (mode === "signup" && onboarding) {
+        await submitOnboarding(onboarding);
+      }
+      await refresh(); // flips the navigator to the Home stack
+    } catch (err) {
+      setError(firstErrorMessage(err));
       setSubmitting(false);
     }
   };
@@ -64,7 +79,11 @@ export default function VerifyOtpScreen({ navigation, route }: Props) {
     setResent(true);
     setError(null);
     try {
-      await requestOtp(email);
+      if (mode === "signup") {
+        await supabase.auth.resend({ type: "signup", email });
+      } else {
+        await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: false } });
+      }
     } catch {
       // Throttled or offline — the neutral copy below still applies.
     }

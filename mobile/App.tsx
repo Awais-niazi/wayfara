@@ -23,7 +23,6 @@ import WelcomeScreen from "./screens/WelcomeScreen";
 import GetStartedScreen from "./screens/GetStartedScreen";
 import LoginScreen from "./screens/LoginScreen";
 import VerifyOtpScreen from "./screens/VerifyOtpScreen";
-import CreatePasswordScreen from "./screens/CreatePasswordScreen";
 import HomeScreen from "./screens/HomeScreen";
 import MatchDetailScreen from "./screens/MatchDetailScreen";
 import MatchesScreen from "./screens/MatchesScreen";
@@ -53,14 +52,10 @@ function RootNavigator() {
           <Stack.Screen name="Matches" component={MatchesScreen} />
           <Stack.Screen name="Profile" component={ProfileScreen} />
         </>
-      ) : status === "needsPassword" ? (
-        // Onboarding step 3: email verified, password pending. Its own stack
-        // so neither the form nor the dashboard is reachable around it.
-        <Stack.Screen name="CreatePassword" component={CreatePasswordScreen} />
       ) : (
         <>
           {/* Landing: Welcome hero with the "Get Started" CTA → profile form.
-              No register wall — the form itself creates the account. */}
+              No register wall — the form itself signs the user up. */}
           <Stack.Screen name="Welcome" component={WelcomeScreen} />
           <Stack.Screen name="GetStarted" component={GetStartedScreen} />
           <Stack.Screen name="Login" component={LoginScreen} />

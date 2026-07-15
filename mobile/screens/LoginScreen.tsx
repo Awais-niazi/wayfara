@@ -1,11 +1,10 @@
 /**
  * 02a — LOG IN (returning user)
- * Two ways in, password first since returning users have one (onboarding
- * step 3 sets it):
- *   - email + password → POST /auth/token/  (JWT pair, straight to Home)
- *   - email only       → POST /auth/otp/request/ → VerifyOtp  (passwordless)
- * The backend never reveals whether an account exists, so the CTA copy for
- * the code path stays neutral.
+ * Two ways in via Supabase, password first:
+ *   - email + password → supabase.auth.signInWithPassword → Home
+ *   - email only       → supabase.auth.signInWithOtp → VerifyOtp (passwordless)
+ * shouldCreateUser is false on the code path so logging in never silently
+ * creates an account.
  */
 import React, { useState } from "react";
 import { View, Text, StyleSheet, Pressable, ScrollView } from "react-native";
@@ -16,7 +15,7 @@ import { colors, fonts } from "../theme";
 import { PrimaryButton } from "../components/ui";
 import { Field, FormError } from "../components/form";
 import { ChevronLeftIcon } from "../components/icons";
-import { ApiError, loginWithPassword, requestOtp } from "../lib/api";
+import { isSupabaseConfigured, supabase } from "../lib/supabase";
 import { useAuth } from "../context/AuthContext";
 import type { RootStackParamList } from "../navigation/types";
 
@@ -25,7 +24,7 @@ type Props = NativeStackScreenProps<RootStackParamList, "Login">;
 type Mode = "password" | "otp";
 
 export default function LoginScreen({ navigation }: Props) {
-  const { signIn } = useAuth();
+  const { refresh } = useAuth();
   const [mode, setMode] = useState<Mode>("password");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -43,26 +42,36 @@ export default function LoginScreen({ navigation }: Props) {
 
   const onSubmit = async () => {
     if (!canSubmit) return;
+    if (!isSupabaseConfigured) {
+      setError("Login isn't available yet — Supabase isn't configured.");
+      return;
+    }
     setSubmitting(true);
     setError(null);
     try {
       if (mode === "password") {
-        const tokens = await loginWithPassword(email.trim(), password);
-        await signIn(tokens); // auth state flips; the navigator swaps stacks
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+          email: email.trim(),
+          password,
+        });
+        if (signInError) {
+          setError("Wrong email or password. You can log in with an email code instead.");
+          return;
+        }
+        await refresh(); // auth state flips; the navigator swaps stacks
       } else {
-        await requestOtp(email.trim());
-        navigation.navigate("VerifyOtp", { email: email.trim() });
+        const { error: otpError } = await supabase.auth.signInWithOtp({
+          email: email.trim(),
+          options: { shouldCreateUser: false },
+        });
+        if (otpError) {
+          setError("Couldn't send the code. Please try again in a minute.");
+          return;
+        }
+        navigation.navigate("VerifyOtp", { email: email.trim(), mode: "login" });
       }
-    } catch (err) {
-      if (mode === "password" && err instanceof ApiError && err.status === 401) {
-        setError("Wrong email or password. You can log in with an email code instead.");
-      } else if (err instanceof Error && err.message === "Network request failed") {
-        setError("Can't reach the server. Is the backend running?");
-      } else if (mode === "password") {
-        setError("Couldn't log you in. Please try again in a minute.");
-      } else {
-        setError("Couldn't send the code. Please try again in a minute.");
-      }
+    } catch {
+      setError("Can't reach the server. Please try again in a minute.");
     } finally {
       setSubmitting(false);
     }

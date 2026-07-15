@@ -81,6 +81,72 @@ class SupabaseAuthTests(APITestCase):
         self.assertEqual(self.client.get(reverse("me")).status_code, 401)
 
 
+@override_settings(SUPABASE_URL="https://test-ref.supabase.co")
+class SupabaseAsymmetricAuthTests(APITestCase):
+    """Newer Supabase projects sign access tokens with ES256; Django verifies
+    them against the project's JWKS public key (mocked here)."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        from cryptography.hazmat.primitives.asymmetric import ec
+
+        cls.private_key = ec.generate_private_key(ec.SECP256R1())
+        cls.public_key = cls.private_key.public_key()
+
+    def _es256_token(self, sub=None, email="ecc@example.com", exp_delta=3600):
+        return jwt.encode(
+            {
+                "sub": sub or str(uuid.uuid4()),
+                "email": email,
+                "aud": "authenticated",
+                "exp": int(time.time()) + exp_delta,
+            },
+            self.private_key,
+            algorithm="ES256",
+            headers={"kid": "test-key"},
+        )
+
+    def _mock_jwks(self):
+        from unittest.mock import MagicMock, patch
+
+        client = MagicMock()
+        client.get_signing_key_from_jwt.return_value = MagicMock(key=self.public_key)
+        return patch("accounts.authentication._get_jwks_client", return_value=client)
+
+    def test_es256_token_verifies_via_jwks_and_provisions_user(self):
+        sub = str(uuid.uuid4())
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self._es256_token(sub=sub)}")
+        with self._mock_jwks():
+            resp = self.client.get(reverse("me"))
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp.data["email"], "ecc@example.com")
+        self.assertTrue(User.objects.filter(supabase_id=sub).exists())
+
+    def test_es256_token_signed_by_another_key_is_rejected(self):
+        from cryptography.hazmat.primitives.asymmetric import ec
+
+        rogue = ec.generate_private_key(ec.SECP256R1())
+        forged = jwt.encode(
+            {"sub": str(uuid.uuid4()), "aud": "authenticated",
+             "exp": int(time.time()) + 3600},
+            rogue,
+            algorithm="ES256",
+        )
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {forged}")
+        with self._mock_jwks():  # JWKS still returns OUR public key
+            resp = self.client.get(reverse("me"))
+        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_expired_es256_token_is_rejected(self):
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {self._es256_token(exp_delta=-10)}"
+        )
+        with self._mock_jwks():
+            resp = self.client.get(reverse("me"))
+        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
+
+
 class MeAndLogoutTests(APITestCase):
     def test_me_requires_auth(self):
         self.assertEqual(self.client.get(reverse("me")).status_code, 401)

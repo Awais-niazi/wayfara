@@ -176,7 +176,9 @@ export default function HomeScreen({ navigation }: Props) {
   }, [load]);
 
   // ── Derived view data ──────────────────────────────────────────────────────
-  const displayName = profile?.first_name || profile?.email.split("@")[0] || "there";
+  // Greet by the chosen username first, then a real name, then the email prefix.
+  const displayName =
+    profile?.username || profile?.first_name || profile?.email.split("@")[0] || "there";
 
   const today = new Date().toLocaleDateString("en-GB", {
     weekday: "long",

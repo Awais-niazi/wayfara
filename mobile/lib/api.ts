@@ -1,16 +1,15 @@
 /**
  * Typed API client for the Wayfara Django backend.
  *
- * Auth model: passwordless OTP. The Get Started form (`onboarding`) creates
- * the account and emails a 6-digit code; `verifyOtp` exchanges email + code
- * for JWT tokens (it is also the login). Tokens rotate on refresh — the
- * refresh endpoint returns BOTH a new access and a new refresh token.
- *
- * The client is transport-only: token persistence and refresh-on-401 live in
- * `context/AuthContext.tsx`, which registers itself via `configureApi`.
+ * Auth model: Supabase owns identity. The app authenticates against Supabase
+ * (see lib/supabase.ts); this client reads the current Supabase access token
+ * per request and forwards it as a Bearer credential. On a 401 it asks
+ * Supabase to refresh the session once, then retries.
  */
 import Constants from "expo-constants";
 import { Platform } from "react-native";
+
+import { supabase } from "./supabase";
 
 function defaultApiUrl(): string {
   const configured = Constants.expoConfig?.extra?.apiUrl as string | undefined;
@@ -24,18 +23,12 @@ export const API_URL = defaultApiUrl();
 
 // ─── Wire types (mirror the DRF serializers) ────────────────────────────────
 
-export interface Tokens {
-  access: string;
-  refresh: string;
-}
-
 export interface Me {
   email: string;
+  username: string | null;
   role: "student" | "advisor" | string;
   tier: "free" | "full" | "premium" | string;
   email_verified: boolean;
-  /** False until onboarding step 3 (create password) is done. */
-  has_password: boolean;
   onboarding_complete: boolean;
 }
 
@@ -47,7 +40,7 @@ export type Intake = "september" | "january";
 export type Stage = "exploring" | "ready" | "applied";
 
 export interface OnboardingForm {
-  email: string;
+  username: string;
   study_level: StudyLevel;
   field_of_study: string;
   grade_scale?: GradeScale;
@@ -64,6 +57,7 @@ export interface OnboardingForm {
 export interface Profile {
   id: number;
   email: string;
+  username: string | null;
   first_name: string;
   last_name: string;
   tier: string;
@@ -188,24 +182,6 @@ export function firstErrorMessage(err: unknown): string {
 
 // ─── Core request machinery ──────────────────────────────────────────────────
 
-interface ApiHooks {
-  /** Returns the current access token, or null when signed out. */
-  getAccessToken: () => string | null;
-  /** Called on a 401 from an authed request; should refresh and return the
-   *  new access token, or null if the session is unrecoverable. */
-  onUnauthorized: () => Promise<string | null>;
-}
-
-let hooks: ApiHooks = {
-  getAccessToken: () => null,
-  onUnauthorized: async () => null,
-};
-
-/** AuthContext registers its token accessors here at mount. */
-export function configureApi(next: ApiHooks) {
-  hooks = next;
-}
-
 // Every endpoint below lives under this one versioned prefix on the backend
 // (wayfara/urls.py); call sites pass just the resource path (e.g. "/me/"),
 // never "/api/...", so a version bump is a one-line change here.
@@ -221,15 +197,17 @@ async function request<T>(
     ...(init.headers as Record<string, string> | undefined),
   };
   if (auth) {
-    const token = hooks.getAccessToken();
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
     if (token) headers.Authorization = `Bearer ${token}`;
   }
 
   const res = await fetch(`${API_URL}${API_VERSION_PREFIX}${path}`, { ...init, headers });
 
   if (res.status === 401 && auth && !retried) {
-    const fresh = await hooks.onUnauthorized();
-    if (fresh) return request<T>(path, init, { auth, retried: true });
+    // Token may have lapsed between refreshes — ask Supabase for a fresh one.
+    const { data } = await supabase.auth.refreshSession();
+    if (data.session) return request<T>(path, init, { auth, retried: true });
   }
 
   if (!res.ok) {
@@ -253,39 +231,10 @@ const post = (body: unknown): RequestInit => ({
 
 // ─── Endpoints ───────────────────────────────────────────────────────────────
 
-/** The Get Started form (anonymous). Creates the account + emails the OTP. */
+/** The Get Started form. The user is already Supabase-authenticated; this claims
+ *  a username, stores the profile, and kicks off matching in the background. */
 export function submitOnboarding(form: OnboardingForm) {
-  return request<{ detail: string; email: string }>("/onboarding/", post(form), {
-    auth: false,
-  });
-}
-
-/** Send a login code to an existing account. Always 200 (no enumeration). */
-export function requestOtp(email: string) {
-  return request<{ detail: string }>("/auth/otp/request/", post({ email }), {
-    auth: false,
-  });
-}
-
-/** Exchange email + 6-digit code for JWT tokens. This IS the login. */
-export function verifyOtp(email: string, code: string) {
-  return request<Tokens>("/auth/otp/verify/", post({ email, code }), {
-    auth: false,
-  });
-}
-
-/** Password login for returning users who set one (onboarding step 3). */
-export function loginWithPassword(email: string, password: string) {
-  return request<Tokens>("/auth/token/", post({ email, password }), {
-    auth: false,
-  });
-}
-
-/** Rotate the refresh token; returns a new access AND refresh pair. */
-export function refreshTokens(refresh: string) {
-  return request<Tokens>("/auth/token/refresh/", post({ refresh }), {
-    auth: false,
-  });
+  return request<{ detail: string; username: string }>("/onboarding/", post(form));
 }
 
 /** Session bootstrap — 401 means signed out. */
@@ -293,14 +242,10 @@ export function getMe() {
   return request<Me>("/me/");
 }
 
-/** Onboarding step 3: create the account password (authenticated). */
-export function setPassword(password: string) {
-  return request<{ detail: string }>("/auth/password/", post({ password }));
-}
-
-/** Blacklist the refresh token server-side. */
-export function logout(refresh: string) {
-  return request<void>("/auth/logout/", post({ refresh }));
+/** Best-effort server cleanup on sign-out: drop this device's push token.
+ *  Session revocation itself is Supabase's `signOut()` (client-side). */
+export function logout(deviceToken?: string) {
+  return request<void>("/auth/logout/", post(deviceToken ? { device_token: deviceToken } : {}));
 }
 
 export function getProfile() {

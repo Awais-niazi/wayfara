@@ -59,7 +59,7 @@ Postgres cluster is `16/finnguide`); the database inside it is `wayfara`.
 
 | Path | What it is | Stack |
 |---|---|---|
-| `backend/` | REST API, business logic, AI orchestration, data pipeline | Django 6 · DRF · SimpleJWT · PostgreSQL 16 · Celery/Redis |
+| `backend/` | REST API, business logic, AI orchestration, data pipeline | Django 6 · DRF · Supabase-verified JWTs · PostgreSQL 16 · Celery/Redis |
 | `mobile/` | The installable app | Expo (React Native, SDK 57) · NativeWind v5 · React Navigation |
 | `web/` | Landing page + purchase front door | Static HTML (checkout wiring lands later) |
 | `docs/` | Architecture, schema, build logs | Markdown |
@@ -67,10 +67,15 @@ Postgres cluster is `16/finnguide`); the database inside it is `wayfara`.
 ### Shape of the system
 
 ```
-  ┌─────────────┐        HTTPS / JSON        ┌──────────────────────────┐
+  ┌──────────────────────┐  signup / login / OTP / refresh
+  │  Supabase Auth       │ ◀──────────────────────────────┐
+  │  (identity authority)│ ── session (ES256 JWT) ──────▶ │
+  └──────────────────────┘                                │
+                                                          │
+  ┌─────────────┐        HTTPS / JSON        ┌────────────┴─────────────┐
   │  Mobile app │ ───────────────────────▶  │  Django REST API          │
-  │  (Expo RN)  │   JWT (OTP-issued)         │  (stateless, horizontally │
-  │             │ ◀───────────────────────  │   scalable)               │
+  │  (Expo RN)  │   Bearer: Supabase JWT     │  (verifies via JWKS;      │
+  │             │ ◀───────────────────────  │   stateless, scalable)    │
   └─────────────┘                            └───────────┬──────────────┘
         │                                                │
         │ buys entitlement on                            │ owns as source of truth
@@ -91,19 +96,20 @@ Postgres cluster is `16/finnguide`); the database inside it is `wayfara`.
 ### Request lifecycle (the onboarding spine)
 
 The canonical flow the whole system is built around — **form-first, no register
-wall**:
+wall** (the account fields are just step 1 of the same wizard):
 
-1. **App → `POST /api/v1/onboarding/`** (anonymous): profile + email. The
-   backend creates a passwordless `User` + `Student`, and in the same
-   transaction enqueues **two background tasks** on commit — university
-   matching and timeline generation — then emails a 6-digit OTP.
-2. **App → `POST /api/v1/auth/otp/verify/`**: email + code → JWT access/refresh
-   pair. This verifies the email and *is* the login.
-3. **App → `POST /api/v1/auth/password/`**: the user sets a password
-   (onboarding step 3). Only then does the app route to the dashboard.
-4. **Dashboard** reads `/api/v1/profile/`, `/api/v1/matches/`,
+1. **App → Supabase `signUp`** (email + password, collected with the username in
+   wizard step 1). Supabase emails a **6-digit code**; the app verifies it with
+   Supabase (`verifyOtp`) and now holds a session (ES256 access + refresh,
+   auto-refreshed by supabase-js).
+2. **App → `POST /api/v1/onboarding/`** (authenticated with that token): claims
+   the **username** and stores the `Student` profile; in the same transaction
+   enqueues **two background tasks** on commit — university matching and
+   timeline generation. Django JIT-provisions its local `User` shadow (keyed by
+   the Supabase UUID) the first time it sees a valid token.
+3. **Dashboard** reads `/api/v1/profile/`, `/api/v1/matches/`,
    `/api/v1/tasks/` — by now the background tasks have populated matches and
-   a dated journey plan.
+   a dated journey plan. The greeting uses the username.
 
 ---
 
@@ -150,23 +156,43 @@ across working sessions.
 - **Trade-off.** An extra cluster to run locally, but complete isolation from an
   unrelated critical system.
 
-### 3.4 Passwordless OTP first, password second
-- **Why.** The form-first funnel (3.5) can't demand a password up front without
-  becoming a register wall. So email + 6-digit OTP creates and verifies the
-  account with zero friction; a password is set *after* verification, before the
-  dashboard, so the account is properly secured for return logins.
-- **How.** `EmailOTP` stores the hashed code (5-attempt cap, 10-min expiry);
-  verify issues JWTs; `/api/v1/auth/password/` sets the password; `/api/v1/me/`
-  exposes `has_password` so the app knows whether onboarding step 3 is done.
-- **Trade-offs.** OTP delivery depends on an email provider (console backend in
-  dev). Magic links were rejected in favour of codes (better on mobile).
+### 3.4 Supabase as the identity authority (July 2026)
+- **Why.** Auth is a foundation, not a feature — credentials, sessions, OTP
+  delivery, and token issuance are now owned by a dedicated, audited provider
+  (Supabase Cloud, Singapore region; GoTrue is open-source and self-hostable, so
+  there's an exit). Alternatives weighed: Clerk (best DX, MAU-priced — wrong
+  economics for a price-sensitive B2C market), Firebase (Google lock-in),
+  WorkOS (B2B SSO, wrong tool).
+- **How.** The app talks to Supabase directly (`mobile/lib/supabase.ts`):
+  `signUp` (email + password), `signInWithPassword`, `signInWithOtp` (the
+  fallback login), `verifyOtp`, `signOut`. Django never issues tokens — it only
+  *verifies* the forwarded access token
+  (`accounts/authentication.py::SupabaseJWTAuthentication`): ES256 against the
+  project's public **JWKS** endpoint (cached), with an HS256 fallback for
+  legacy shared-secret projects; the token's own header picks the path. On
+  first valid token, the local `User` shadow is **JIT-provisioned**, keyed by
+  `supabase_id` (the Supabase UUID); a pre-provisioned row (advisor) is linked
+  by email instead of duplicated. Django keeps what Supabase can't own:
+  `username`, `role`, `tier`, and the whole domain.
+- **Email delivery.** Supabase Auth sends via **custom SMTP (Resend)**; the
+  Confirm-signup and Magic-link templates are edited to carry `{{ .Token }}` —
+  a 6-digit code, not a link (codes beat links on mobile). Until a sending
+  domain is verified in Resend, mail only delivers to the Resend account's own
+  address (fine for dev; domain verification is a launch prerequisite).
+- **History.** Replaces the home-grown layer (hashed `EmailOTP` +
+  SimpleJWT issue/rotate/blacklist, removed in the same change). Pre-launch,
+  so a clean cutover: no user migration, old test accounts deleted.
 
 ### 3.5 Form-first onboarding, no register wall
 - **Why.** Zero-friction funnel — the student sees value (their matches + a dated
-  plan) before being asked to commit. `POST /api/v1/onboarding/` is `AllowAny` and
-  combines profile + email in one anonymous submission.
-- **Trade-off.** The account exists before it's verified/secured, so downstream
-  code treats "has a `Student` profile" and "has a password" as distinct signals.
+  plan) before being asked to commit. The account fields (email, **username**,
+  password) are step 1 of the same 4-step wizard, not a separate wall; the
+  profile answers ride along and `POST /api/v1/onboarding/` (authenticated)
+  stores them once the email code verifies.
+- **Trade-off.** A Supabase identity can exist before onboarding finishes, so
+  the app treats "has a session" and "has a `Student` profile"
+  (`onboarding_complete` on `/me/`) as distinct signals — a half-finished
+  wizard resumes rather than dead-ending.
 
 ### 3.6 Background work on Celery + Redis; tasks are thin invokers
 - **Why.** Matching, timeline generation, reminders, and the monthly scraper must
@@ -288,10 +314,7 @@ across working sessions.
 - **Enforced, not just documented.** `wayfara/tests_conventions.py::StrictSerializerConventionTests`
   imports every local app's `serializers` module and fails CI if any serializer
   class defined there isn't a `Strict*` subclass — the same mechanism that
-  makes 3.12 durable against a future session forgetting the rule. Third-party
-  serializers we don't own (SimpleJWT's token serializers, wired directly in
-  `wayfara/urls.py`) are explicitly out of scope: fixed, tiny payloads with no
-  model write surface, not worth wrapping.
+  makes 3.12 durable against a future session forgetting the rule.
 - **Output.** Every `ModelSerializer.Meta.fields` in the codebase is an
   explicit list — none use `fields = "__all__"` — so response shape was
   already whitelisted by construction; this pass didn't need to change that.
@@ -301,8 +324,8 @@ across working sessions.
 ## 4. Backend architecture
 
 ### 4.1 Stack
-Django 6.0 · Django REST Framework 3.17 · djangorestframework-simplejwt 5.5 ·
-psycopg 3 · PostgreSQL 16 · Celery 5 + Redis · django-celery-beat ·
+Django 6.0 · Django REST Framework 3.17 · PyJWT + cryptography (Supabase token
+verification) · psycopg 3 · PostgreSQL 16 · Celery 5 + Redis · django-celery-beat ·
 django-cors-headers · Sentry SDK. Env-driven settings via `python-dotenv`;
 SQLite fallback when `DATABASE_URL` is unset (a fresh clone runs with zero setup).
 
@@ -312,7 +335,7 @@ Seven domain apps, split by concern:
 
 | App | Owns | Key models |
 |---|---|---|
-| `accounts` | Identity, auth, entitlement, push tokens | `User`, `EmailOTP`, `DeviceToken` |
+| `accounts` | Identity mirror (Supabase-keyed), entitlement, push tokens | `User`, `DeviceToken` |
 | `students` | The student journey | `Student`, `Document`, `TaskTemplate`, `Task`, `Reminder`, `Accommodation`, `Flight` |
 | `universities` | Institution catalogue + curated KB | `University`, `UniversityProfile`, `Campus`, `Program` |
 | `applications` | Recommendations, applications, visas, policy figures | `Match`, `Application`, `Visa`, `PolicyFigure` |
@@ -322,7 +345,7 @@ Seven domain apps, split by concern:
 
 The field-level schema for the core domain lives in
 [`database-schema.md`](database-schema.md). Note that doc predates `advisor`,
-`scraping`, `PolicyFigure`, `UniversityProfile`, `DeviceToken`, and `EmailOTP` —
+`scraping`, `PolicyFigure`, `UniversityProfile`, and `DeviceToken` —
 this section is the current app inventory.
 
 ### 4.3 The two engines
@@ -376,46 +399,56 @@ sources stay **admin-managed baselines** rather than being auto-scraped.
   changes are visible to users immediately, no TTL wait.
 
 ### 4.5 Auth, sessions & roles
-- **JWT (SimpleJWT):** 60-min access, 30-day refresh, **rotation on** with
-  **blacklist after rotation** (`token_blacklist` app). The refresh endpoint
-  returns a *new pair*; the app must persist both.
-- **Passwordless OTP** as the entry (3.4), password set post-verification.
-- **Two login paths for returning users.** Once a password is set (onboarding
-  step 3), `POST /auth/token/` (email + password) is the primary login; the app
-  falls back to `POST /auth/otp/request/` (email code) if they've forgotten it.
-  Password login is throttled `20/hour` per IP to blunt credential stuffing; the
-  password field is capped at **20 chars** (product decision — see 4.7).
+- **Supabase owns sessions** (3.4): ES256 access tokens (1-hr expiry) +
+  refresh, rotated automatically by supabase-js. Django holds no session state
+  and no token blacklist — revocation is Supabase's `signOut()`.
+- **Verification, not issuance.** `SupabaseJWTAuthentication` is the sole DRF
+  auth class: Bearer token → JWKS (or legacy HS256) signature check →
+  `aud=authenticated` + expiry → local `User` by `supabase_id`
+  (JIT-provisioned). Rate-limiting bad tokens is unnecessary — a forged
+  signature fails in microseconds with no DB touch.
+- **Two login paths for returning users.** Email + password
+  (`signInWithPassword`) is primary; "email me a code" (`signInWithOtp`,
+  `shouldCreateUser: false` so login can't silently create accounts) is the
+  fallback. Passwords are 8–20 chars — enforced in the wizard and in
+  Supabase's minimum-length setting.
+- **Username (July 2026).** Django-owned public handle on `User`:
+  `^[a-z0-9_]{3,20}$`, unique, claimed at onboarding, editable via
+  `PATCH /profile/`. The dashboard greets by username → first name → email
+  prefix, in that order.
 - **Roles.** `User.role` is `student` or `advisor`. `/api/v1/me/` is the session
-  bootstrap — it returns `role`, `tier`, `email_verified`, `has_password`, and
-  `onboarding_complete`, and the app routes on those (student dashboard vs
-  advisor console, and which onboarding step remains).
-- **Logout** blacklists the refresh token and drops the device's push token.
+  bootstrap — it returns `username`, `role`, `tier`, `email_verified`, and
+  `onboarding_complete`, and the app routes on those.
+- **Advisor provisioning.** No self-signup: `manage.py create_advisor <email>`
+  (or the admin action) calls Supabase's Admin **invite** endpoint with the
+  service-role key — the advisor sets their own password via Supabase's invite
+  email; the admin never holds it — and mirrors a local
+  `User(role=advisor, supabase_id=…)`. On first login the auth class links by
+  `supabase_id`, so the advisor role is never reset by JIT defaults. (The old
+  Django reset-token activation flow is gone with the rest of the home-grown
+  layer.)
+- **Logout** = Supabase `signOut()` client-side; `POST /auth/logout/` remains
+  only to prune the device's push token.
 - **Push:** `DeviceToken` stores Expo push tokens per device; advisor replies and
   reminders notify via Expo's push service.
 
 ### 4.6 API surface
 
-All under `/api/v1/` (3.12). Auth required unless marked **(anon)**.
+All under `/api/v1/` (3.12), and all require a Supabase bearer token — signup,
+login, OTP, and token refresh happen **against Supabase directly**, so Django
+no longer exposes any anonymous auth endpoints.
 
 | Method + path | Purpose |
 |---|---|
-| `POST /onboarding/` **(anon)** | Get Started form → account + Student + background matching/timeline + OTP |
-| `POST /auth/otp/request/` **(anon)** | Send login/verification code (always 200; no enumeration) |
-| `POST /auth/otp/verify/` **(anon)** | email + code → JWT pair (verifies email; is the login) |
-| `POST /auth/token/` **(anon)** | email + password → JWT pair (returning users who set a password) |
-| `POST /auth/token/refresh/` **(anon)** | Rotate the refresh token → new pair |
-| `POST /auth/password/` | Set/replace the account password (onboarding step 3) |
-| `GET /me/` | Session bootstrap (role, tier, verified, has_password, onboarding_complete) |
-| `POST /auth/logout/` | Blacklist refresh token + drop device push token |
+| `POST /onboarding/` | Get Started wizard → claims username + stores Student + background matching/timeline |
+| `GET /me/` | Session bootstrap (username, role, tier, verified, onboarding_complete) |
+| `POST /auth/logout/` | Prune this device's push token (session revocation is Supabase `signOut()`) |
 | `POST\|DELETE /devices/` | Register / deregister an Expo push token |
-| `GET\|PATCH /profile/` | Read/update the onboarding profile |
+| `GET\|PATCH /profile/` | Read/update the onboarding profile (incl. username) |
 | `GET /matches/` | University recommendations, best fit first |
 | `GET /tasks/` (`?phase=N`) · `POST /tasks/<id>/status/` | Journey plan + status changes |
-| `GET /universities/` · `GET /universities/<id>/` | Catalogue (cached) |
+| `GET /universities/` · `GET /universities/<id>/` | Catalogue (cached, public) |
 | `advisor/*`, `my-advisor/messages/` | Advisor console + the student side of the thread (Premium-gated) |
-
-> `POST /auth/register/` (password registration) exists but is **not** the app's
-> entry point — onboarding + OTP is. It remains for admin/testing.
 
 > `GET /healthz` (bare path, outside `/api/v1/`, unauthenticated) is the only
 > exception — see 3.13.
@@ -424,19 +457,17 @@ All under `/api/v1/` (3.12). Auth required unless marked **(anon)**.
 - **Row-level scoping.** Student-owned models use a manager (`owned_by` /
   `StudentOwnedManager`) so every query is scoped to the requesting user; advisor
   views are scoped to assigned students only.
-- **Rate limiting.** DRF scoped throttles per sensitive endpoint (onboarding,
-  otp_request, otp_verify, password_login, set_password, register,
-  advisor_activate) plus a per-target-inbox OTP cap that survives IP rotation.
-  Relaxed automatically under `TESTING`.
-- **Input hardening (July 2026).** Every auth field is bounded and typed at the
-  serializer, so hostile input fails with a clean 400 before it reaches the ORM
-  or DB: email capped at RFC-5321's 254 chars, OTP code is `^\d{6}$`, passwords
-  are **8–20 chars** (product decision; a backwards-compatible cap since login
-  never length-checks). SQL injection was never reachable — the codebase has
-  **zero raw SQL** (`grep` for `.raw(`/`.extra(`/`cursor()` is empty; everything
-  is parameterized ORM) — so these caps are defense-in-depth, not the primary
-  control. The per-inbox OTP throttle also no longer 500s on a non-dict JSON
-  body (it now returns 400).
+- **Rate limiting.** Global anon/user throttles plus a scoped `onboarding`
+  rate; credential-stuffing and OTP-flood limiting moved to Supabase with the
+  endpoints themselves (its Auth rate limits + Resend). Relaxed automatically
+  under `TESTING`.
+- **Input hardening (July 2026).** Every writable field is bounded and typed at
+  the serializer, so hostile input fails with a clean 400 before it reaches the
+  ORM or DB (usernames are `^[a-z0-9_]{3,20}$`; passwords — now validated by
+  Supabase — stay 8–20 chars, mirrored in its min-length setting). SQL
+  injection was never reachable — the codebase has **zero raw SQL** (`grep`
+  for `.raw(`/`.extra(`/`cursor()` is empty; everything is parameterized ORM) —
+  so these caps are defense-in-depth, not the primary control.
 - **Semantic validation (July 2026).** Beyond format/length, the academic
   fields are checked for real-world sanity in `students/validators.py` (shared
   by onboarding + profile): a test score must be in range for its test type
@@ -444,17 +475,16 @@ All under `/api/v1/` (3.12). Auth required unless marked **(anon)**.
   fit its declared scale (GPA 0.5–4, % 0–100, letter A–E±), and a budget must be
   plausible (blank/0 = tuition-free, else €1k–€100k). The mobile wizard mirrors
   these client-side for instant feedback; the serializer is the authority.
-- **OTP codes are hashed at rest (July 2026).** `EmailOTP` stores only a salted
-  hash (`code_hash`, via `make_password`); the plaintext lives just long enough
-  to email it, on a transient `plaintext_code` attribute that is never
-  persisted. Verification uses `check_password`, whose internal
-  `constant_time_compare` also closes the timing side-channel. A DB-read
-  attacker can't lift a live code. (Tests use an MD5 hasher under `TESTING` so
-  this doesn't dominate suite runtime.)
-- **`SECRET_KEY` fail-fast (July 2026).** The insecure dev fallback key is still
-  convenient locally, but the app now **refuses to boot** with `DEBUG=False` and
-  no `DJANGO_SECRET_KEY` set — a forgeable-signature deploy is impossible rather
-  than silent.
+- **Credentials at rest are Supabase's problem (July 2026).** With the move to
+  Supabase (3.4), Django stores **no passwords and no OTP codes** — the local
+  `User.password` is unusable for app users. (The previous home-grown layer's
+  hashed-OTP/constant-time-compare hardening went with it; the lesson is
+  encoded in 3.4's "why".)
+- **Config fail-fast (July 2026).** The app **refuses to boot** with
+  `DEBUG=False` if `DJANGO_SECRET_KEY` is the dev fallback, if `SUPABASE_URL`
+  is unset (nothing could authenticate), or if email is still on the console
+  backend (mail would be silently dropped, and OTP is a login path) — broken
+  deploys are impossible rather than silent.
 - **Transport controls.** `CORS_ALLOWED_ORIGINS` and `ALLOWED_HOSTS` are
   env-driven (dev defaults to localhost). Native app traffic isn't subject to
   CORS; the web build is, so LAN/production origins must be whitelisted.
@@ -471,46 +501,50 @@ All under `/api/v1/` (3.12). Auth required unless marked **(anon)**.
 
 ### 5.1 Stack
 Expo SDK **57** · React Native 0.86 · React 19.2 · NativeWind v5 (preview) ·
-React Navigation (native stack) · `expo-secure-store` · `expo-linear-gradient` ·
-`react-native-svg` · Google Fonts (Manrope + Space Grotesk). Web target via
-`react-native-web` for fast local preview.
+React Navigation (native stack) · `@supabase/supabase-js` (+ AsyncStorage,
+URL polyfill) · `expo-linear-gradient` · `react-native-svg` · Google Fonts
+(Manrope + Space Grotesk). Web target via `react-native-web` for fast local
+preview.
 
 ### 5.2 Structure
 
 ```
 mobile/
   App.tsx            # font loading + AuthProvider + auth-gated navigator
-  app.config.js      # dynamic config; apiUrl from WAYFARA_API_URL env (deploy-ready)
+  app.config.js      # dynamic config; apiUrl + Supabase URL/anon key from env
+  .env               # SUPABASE_URL + SUPABASE_ANON_KEY (gitignored; Expo auto-loads)
   theme/             # design tokens (coral accent, cream canvas, type, radii)
   components/        # icons (SVG), ui (Wordmark/buttons/chips), form (Field/ChoiceRow)
-  context/AuthContext.tsx   # session state machine + refresh hook
-  lib/api.ts         # typed API client (transport only)
-  lib/tokenStorage.ts# JWTs in keychain (native) / localStorage (web)
+  context/AuthContext.tsx   # session state derived from Supabase + /me/
+  lib/supabase.ts    # Supabase client (AsyncStorage-persisted, auto-refresh)
+  lib/api.ts         # typed API client (transport only; token from Supabase)
   navigation/types.ts# typed route params
-  screens/           # Welcome, GetStarted, Login, VerifyOtp, CreatePassword, Home
+  screens/           # Welcome, GetStarted, Login, VerifyOtp, Home, …
 ```
 
 ### 5.3 Session model
-`AuthContext` is a small state machine driving the root navigator:
+Supabase owns the session (persisted in AsyncStorage, auto-refreshed by
+supabase-js); `AuthContext` derives the route from two facts — is there a
+session, and has onboarding finished (`/me/.onboarding_complete`):
 
 | Status | Meaning | Route |
 |---|---|---|
-| `loading` | session bootstrap in flight (stored tokens + `/me/`) | splash |
-| `signedOut` | no valid session | Welcome → GetStarted → Login → VerifyOtp |
-| `needsPassword` | verified but `has_password === false` | CreatePassword (isolated) |
-| `signedIn` | full account | Home |
+| `loading` | session bootstrap in flight (`getSession()` + `/me/`) | splash |
+| `signedOut` | no session, **or** session without a finished profile | Welcome → GetStarted → Login → VerifyOtp |
+| `signedIn` | session + onboarded | Home |
 
-Tokens live in a ref (read synchronously per request) and in secure storage. The
-API client registers a **refresh-on-401 hook** (`configureApi`): a 401 triggers
-one refresh + retry; failure clears the session. Token **rotation** means each
-refresh persists a new pair.
+The "session but not onboarded" case staying in the signed-out stack is what
+lets a half-finished wizard resume instead of being yanked to a dead dashboard.
+`onAuthStateChange` recomputes the route on every sign-in/out/refresh.
 
 ### 5.4 API client (`lib/api.ts`)
-Transport-only, typed against the DRF serializers. `defaultApiUrl()` reads
-`Constants.expoConfig.extra.apiUrl` (set from `WAYFARA_API_URL` at build time),
-falling back to `10.0.2.2:8000` (Android emulator → host) or `localhost:8000`.
-`ApiError` surfaces DRF messages; refresh/persistence live in `AuthContext`, not
-here.
+Transport-only, typed against the DRF serializers. Each request reads the
+current Supabase access token (`supabase.auth.getSession()`) and sends it as
+the Bearer credential; on a 401 it asks Supabase to `refreshSession()` once
+and retries. `defaultApiUrl()` reads `Constants.expoConfig.extra.apiUrl` (set
+from `WAYFARA_API_URL` at build time), falling back to `10.0.2.2:8000`
+(Android emulator → host) or `localhost:8000`. `ApiError` surfaces DRF
+messages.
 
 ### 5.5 Design system
 Coral-first brand (`#F8593C`, with amber/terracotta variants) on a warm cream
@@ -539,21 +573,32 @@ code change.
 | `SECURE_HSTS_SECONDS` | HSTS max-age | `31536000` (1 yr) when `DEBUG=False` |
 | `REDIS_URL` | Celery broker/result | `redis://localhost:6379/5` |
 | `CELERY_TASK_ALWAYS_EAGER` | run tasks inline | `true` (dev/test) |
-| `DJANGO_EMAIL_BACKEND` | OTP delivery | console backend (codes print to the server log) |
+| `SUPABASE_URL` | Supabase project URL (JWKS derives from it) | **required** (auth verifies nothing without it; boot-blocked in prod) |
+| `SUPABASE_JWT_SECRET` | legacy HS256 fallback verification | set from dashboard (unused on ES256 projects) |
+| `SUPABASE_SERVICE_ROLE_KEY` | Admin API (advisor invites) | set from dashboard; server-only |
+| `EMAIL_HOST` + `EMAIL_*` | Django's own mail (reminders, alerts) via SMTP | unset → console backend; **required** when `DEBUG=False` (boot-blocked) |
 | `SENTRY_DSN` | error tracking | unset (Sentry activates only in prod) |
 
-### Mobile (`app.config.js`)
+> Supabase **Auth** mail (signup confirmation / OTP codes) is configured in the
+> Supabase dashboard (custom SMTP → Resend), not here — both mail paths point at
+> the same provider.
+
+### Mobile (`app.config.js`, loaded from `mobile/.env`)
 | Var | Purpose | Dev default |
 |---|---|---|
 | `WAYFARA_API_URL` | backend base URL baked into `extra.apiUrl` | `http://localhost:8010` |
+| `SUPABASE_URL` | Supabase project URL | required for auth |
+| `SUPABASE_ANON_KEY` | publishable client key (safe to ship) | required for auth |
 | `REACT_NATIVE_PACKAGER_HOSTNAME` | pin Metro to a specific LAN IP | auto |
 
 ### Local dev notes
 - **Backend port.** The dev machine's :8000 is taken by an unrelated system, so
   Wayfara's Django dev server runs on **:8010** and `WAYFARA_API_URL` points
   there.
-- **OTP in dev.** The console email backend prints codes to the Django log rather
-  than sending mail — grep the server log for the 6-digit code.
+- **OTP in dev.** Codes are real email now (Supabase → Resend). Until a sending
+  domain is verified in Resend, delivery only works to the Resend account's own
+  address — sign up test accounts with that email. Django's console backend only
+  covers Django's *own* mail (reminders), which just prints to the server log.
 - **Physical-device testing (Expo Go).** Public Expo Go tracks the *latest*
   released SDK; SDK 57 (bleeding edge, incl. NativeWind v5 preview) may be ahead
   of it, so Expo Go can refuse the project. Options: (a) view the **web build**
@@ -574,15 +619,15 @@ Awais's mandated launch-readiness checklist. Status as of this document:
 
 | # | Layer | Status | Where it lives |
 |---|---|---|---|
-| 1 | Frontend foundations | 🟢 | Nav, auth state, secure token storage, typed API client, onboarding spine, design system |
+| 1 | Frontend foundations | 🟢 | Nav, Supabase-backed auth state, typed API client, onboarding spine, design system |
 | 2 | APIs & backend logic | 🟢 | 7 apps; matching + timeline engines; advisor; scraper; versioned `/api/v1/`; strict input validation on every serializer |
 | 3 | Database & storage | 🟡 | Postgres :5433 + migrations done; **media still local disk** (needs S3/R2 + signed access) |
-| 4 | Auth & permissions | 🟢 | JWT + OTP + password step; roles; row-level scoping |
+| 4 | Auth & permissions | 🟢 | Supabase identity (password + OTP fallback, ES256/JWKS-verified); usernames; roles; row-level scoping |
 | 5 | Hosting & deployment | 🔴 | Not started (Railway planned; env-driven config already prepped); `/healthz` ready for the platform health check |
 | 6 | Cloud & compute | 🟡 | Celery/Redis/Beat designed & correct; runs only locally |
 | 7 | CI/CD & version control | 🟡 | GitHub Actions CI (Postgres service) + guardrail tests for API versioning/strict-serializer conventions; **no CD** (blocked on Layer 5) |
-| 8 | Security & RLS | 🟢 | App-layer scoping; OTP hashed + constant-time; SECRET_KEY fail-fast; `SECURE_*`/HSTS/cookie flags wired (auto-on at `DEBUG=False`) |
-| 9 | Rate limiting | 🟢 | DRF scoped throttles + per-inbox OTP cap |
+| 8 | Security & RLS | 🟢 | App-layer scoping; credentials offloaded to Supabase; SECRET_KEY/SUPABASE_URL/SMTP fail-fasts; `SECURE_*`/HSTS/cookie flags wired (auto-on at `DEBUG=False`) |
+| 9 | Rate limiting | 🟢 | DRF global + onboarding throttles; auth-endpoint limits are Supabase's |
 | 10 | Caching & CDN | 🟡 | Redis cache + cached discovery API; **CDN untouched** (no static/media host yet) |
 | 11 | Load balancing & scaling | 🔴 | Stateless design honoured; nothing to balance yet (blocked on Layer 5); `/healthz` ready as the LB health-check target |
 | 12 | Error tracking & logs | 🟢 | Sentry + Sentry Logs (WARNING+), env-gated |
@@ -622,11 +667,15 @@ Consolidated, so nothing hides in prose:
    verification against Migri's current numbers before Phase 4 content ships.
 7. **Payment layer not built.** `User.tier` is webhook-driven by design, but the
    `Payment` model + gateway integration land later (with merchant onboarding).
-8. **~~Auth hardening follow-ups (July 2026 scan)~~ — DONE.** All three closed:
-   OTP codes are now hashed at rest + verified in constant time (4.7), and the
-   app fail-fasts on a missing `DJANGO_SECRET_KEY` in production. The only
-   deploy-time action left is *setting* a real `DJANGO_SECRET_KEY` (and the
-   other prod env vars in §6) — the code now enforces it.
+8. **~~Auth hardening follow-ups (July 2026 scan)~~ — SUPERSEDED.** All three
+   were closed, then the whole home-grown auth layer was replaced by Supabase
+   (3.4) — credentials/OTP storage are no longer Django's problem at all. The
+   deploy-time action is setting the prod env vars in §6 (the fail-fasts
+   enforce them).
+9. **Auth email delivery is dev-scoped.** Resend has no verified sending
+   domain yet, so Supabase's codes only deliver to the Resend account's own
+   inbox. **Verifying a domain (SPF/DKIM) is a launch prerequisite** — without
+   it no real user can sign up. Same domain then feeds Django's `EMAIL_*`.
 
 ---
 

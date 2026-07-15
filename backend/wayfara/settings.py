@@ -154,12 +154,14 @@ if TESTING:
 # and provisions advisors via the Admin API (accounts.supabase). The anon key
 # is client-side only and lives in the mobile app config, not here.
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
+# Only needed for legacy HS256-signed tokens; projects on asymmetric signing
+# keys (ES256) verify via the public JWKS endpoint derived from SUPABASE_URL.
 SUPABASE_JWT_SECRET = os.environ.get("SUPABASE_JWT_SECRET", "")
 SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
-if not DEBUG and not TESTING and not (SUPABASE_URL and SUPABASE_JWT_SECRET):
+if not DEBUG and not TESTING and not SUPABASE_URL:
     raise ImproperlyConfigured(
-        "SUPABASE_URL and SUPABASE_JWT_SECRET must be set in production — "
-        "without them no request can authenticate."
+        "SUPABASE_URL must be set in production — without it no request can "
+        "authenticate."
     )
 
 CORS_ALLOWED_ORIGINS = os.environ.get(

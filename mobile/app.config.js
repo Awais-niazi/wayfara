@@ -11,6 +11,12 @@
 
 const API_URL = process.env.WAYFARA_API_URL ?? "http://localhost:8010";
 
+// Supabase (identity). Set these in the environment / EAS secrets — the anon
+// key is safe to ship in the client (it only allows what RLS + Supabase Auth
+// permit). The Django service-role & JWT secret live server-side, never here.
+const SUPABASE_URL = process.env.SUPABASE_URL ?? "";
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY ?? "";
+
 /** @type {import('@expo/config').ExpoConfig} */
 module.exports = {
   name: "Wayfara",
@@ -37,5 +43,7 @@ module.exports = {
   plugins: ["expo-font", "expo-secure-store"],
   extra: {
     apiUrl: API_URL,
+    supabaseUrl: SUPABASE_URL,
+    supabaseAnonKey: SUPABASE_ANON_KEY,
   },
 };

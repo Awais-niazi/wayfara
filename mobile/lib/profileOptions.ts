@@ -85,6 +85,19 @@ export const BUDGET_MIN = 1000;
 export const BUDGET_MAX = 100000;
 const LETTER_GRADE_RE = /^[A-E][*+-]?$/;
 
+// Public handle rule — mirrors accounts.models.username_validator on the server.
+export const USERNAME_RE = /^[a-z0-9_]{3,20}$/;
+
+/** Client-side mirror of the username format rule. Returns an error string, or
+ *  null when acceptable. Uniqueness is enforced server-side. */
+export function usernameError(username: string): string | null {
+  const v = username.trim();
+  if (v === "") return "Pick a username.";
+  if (!USERNAME_RE.test(v))
+    return "3–20 characters: lowercase letters, numbers or underscore.";
+  return null;
+}
+
 /** Client-side mirror of the server's semantic validation. Returns an error
  *  string for the field, or null when the value is acceptable. Empty optional
  *  values pass — the server treats blank as "not provided". */

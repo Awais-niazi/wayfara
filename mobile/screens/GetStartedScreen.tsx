@@ -1,15 +1,14 @@
 /**
  * 02 — GET STARTED (onboarding wizard)
- * Form-first onboarding, per the product decision: no register wall. The same
- * profile questions as before, but split into short, progress-tracked steps so
- * the form doesn't read as one long intimidating page. All answers go to
- * POST /api/v1/onboarding/ on the final step, which creates a passwordless
- * account, kicks off university matching in the background, and emails a
- * 6-digit code — verified on the next screen.
+ * Form-first onboarding, per the product decision: no register wall. Step 1
+ * signs the user up with Supabase (email + username + password); the final step
+ * stores the profile via POST /api/v1/onboarding/ and kicks off matching.
+ * When Supabase requires email confirmation, the 6-digit code is verified on
+ * the next screen, which then finishes the onboarding call.
  *
- * Steps: About you → Your education → Language → Study plan. The two required
- * fields (education level + field of study) live in step 2; steps 3–4 are
- * optional and only sharpen the match, so their "Continue" is never gated.
+ * Steps: About you → Your education → Language → Study plan. The account fields
+ * (email/username/password) + required education fields gate their steps;
+ * steps 3–4 are optional and only sharpen the match.
  */
 import React, { useEffect, useRef, useState } from "react";
 import {
@@ -21,6 +20,7 @@ import {
   Animated,
   Easing,
   BackHandler,
+  Platform,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
@@ -36,9 +36,12 @@ import {
   type Intake,
   type LanguageTest,
   type LanguageTestStatus,
+  type OnboardingForm,
   type Stage,
   type StudyLevel,
 } from "../lib/api";
+import { isSupabaseConfigured, supabase } from "../lib/supabase";
+import { useAuth } from "../context/AuthContext";
 import {
   EDUCATION_LEVELS,
   FIELDS,
@@ -54,6 +57,7 @@ import {
   budgetError,
   gradeError,
   testScoreError,
+  usernameError,
 } from "../lib/profileOptions";
 import type { RootStackParamList } from "../navigation/types";
 
@@ -62,8 +66,8 @@ type Props = NativeStackScreenProps<RootStackParamList, "GetStarted">;
 const STEPS = [
   {
     key: "about",
-    title: "About you",
-    subtitle: "Free to start — we'll match you while you verify your email.",
+    title: "Create your account",
+    subtitle: "Free to start — this is all it takes to see your matches.",
   },
   {
     key: "education",
@@ -85,9 +89,12 @@ const STEPS = [
 const TOTAL = STEPS.length;
 
 export default function GetStartedScreen({ navigation }: Props) {
+  const { refresh } = useAuth();
   const [step, setStep] = useState(0);
 
   const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [studyLevel, setStudyLevel] = useState<StudyLevel | "">("");
   const [fieldOfStudy, setFieldOfStudy] = useState("");
   const [gradeScale, setGradeScale] = useState<GradeScale | "">("");
@@ -110,12 +117,18 @@ export default function GetStartedScreen({ navigation }: Props) {
   const isLast = step === TOTAL - 1;
 
   // Inline semantic errors (mirror the server). Empty optional values pass.
+  const usernameErr = username.trim() === "" ? null : usernameError(username);
   const gradesErr = gradeError(gradeScale, grades);
   const scoreErr = testScoreError(languageTest, testScore);
   const budgetErr = budgetError(budget);
 
   const stepValid = (s: number) => {
-    if (s === 0) return email.trim().includes("@");
+    if (s === 0)
+      return (
+        email.trim().includes("@") &&
+        usernameError(username) === null &&
+        password.length >= 8
+      );
     // Required education fields + no illogical grade value.
     if (s === 1) return studyLevel !== "" && fieldOfStudy.trim().length > 0 && !gradesErr;
     if (s === 2) return !scoreErr; // language is optional but must be sane
@@ -131,7 +144,9 @@ export default function GetStartedScreen({ navigation }: Props) {
       toValue: 1,
       duration: 220,
       easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
+      // Native driver only exists on iOS/Android; web falls back to JS anyway,
+      // and asking for it there just logs a warning.
+      useNativeDriver: Platform.OS !== "web",
     }).start();
   };
 
@@ -153,27 +168,56 @@ export default function GetStartedScreen({ navigation }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
 
+  const buildProfile = (): OnboardingForm => ({
+    username: username.trim(),
+    study_level: studyLevel as StudyLevel,
+    field_of_study: fieldOfStudy.trim(),
+    ...(grades.trim() !== "" && { grade_scale: gradeScale as GradeScale, grades: grades.trim() }),
+    ...(testStatus !== "" && { language_test_status: testStatus }),
+    ...(testStatus === "taken" && languageTest !== "" && { language_test: languageTest }),
+    ...(testStatus === "taken" &&
+      testScore.trim() !== "" && { language_test_score: testScore.trim() }),
+    ...(budget.trim() !== "" && { budget_eur_per_year: parseInt(budget, 10) }),
+    ...(intake !== "" && { intake }),
+    ...(intakeYear !== "" && { intake_year: parseInt(intakeYear, 10) }),
+    ...(stage !== "" && { stage }),
+  });
+
   const onSubmit = async () => {
     if (!stepValid(0) || !stepValid(1) || submitting) return;
+    if (!isSupabaseConfigured) {
+      setError("Sign-up isn't available yet — Supabase isn't configured.");
+      return;
+    }
     setSubmitting(true);
     setError(null);
     try {
-      await submitOnboarding({
-        email: email.trim(),
-        study_level: studyLevel as StudyLevel,
-        field_of_study: fieldOfStudy.trim(),
-        ...(grades.trim() !== "" && { grade_scale: gradeScale as GradeScale, grades: grades.trim() }),
-        ...(testStatus !== "" && { language_test_status: testStatus }),
-        ...(testStatus === "taken" &&
-          languageTest !== "" && { language_test: languageTest }),
-        ...(testStatus === "taken" &&
-          testScore.trim() !== "" && { language_test_score: testScore.trim() }),
-        ...(budget.trim() !== "" && { budget_eur_per_year: parseInt(budget, 10) }),
-        ...(intake !== "" && { intake }),
-        ...(intakeYear !== "" && { intake_year: parseInt(intakeYear, 10) }),
-        ...(stage !== "" && { stage }),
-      });
-      navigation.navigate("VerifyOtp", { email: email.trim() });
+      const profile = buildProfile();
+      // Sign up with Supabase (skip if a session already exists — e.g. a
+      // resumed, half-finished onboarding).
+      const { data: existing } = await supabase.auth.getSession();
+      if (!existing.session) {
+        const { data, error: signUpError } = await supabase.auth.signUp({
+          email: email.trim(),
+          password,
+        });
+        if (signUpError) {
+          setError(signUpError.message);
+          return;
+        }
+        if (!data.session) {
+          // Email confirmation required — verify the code, then finish onboarding.
+          navigation.navigate("VerifyOtp", {
+            email: email.trim(),
+            mode: "signup",
+            onboarding: profile,
+          });
+          return;
+        }
+      }
+      // Session in hand: store the profile + start matching, then flip to Home.
+      await submitOnboarding(profile);
+      await refresh();
     } catch (err) {
       setError(firstErrorMessage(err));
     } finally {
@@ -241,6 +285,24 @@ export default function GetStartedScreen({ navigation }: Props) {
                 onChangeText={setEmail}
                 placeholder="you@example.com"
                 keyboardType="email-address"
+              />
+              <Field
+                label="Username"
+                value={username}
+                onChangeText={(t) => setUsername(t.toLowerCase())}
+                placeholder="wanderer_01"
+                autoCapitalize="none"
+                maxLength={20}
+                error={usernameErr}
+                hint="This is how we'll greet you. Lowercase letters, numbers or _"
+              />
+              <Field
+                label="Password (8–20 characters)"
+                value={password}
+                onChangeText={setPassword}
+                placeholder="••••••••"
+                secure
+                maxLength={20}
               />
               <ChoiceRow
                 label="Where are you now?"

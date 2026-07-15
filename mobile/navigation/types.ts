@@ -1,4 +1,4 @@
-import type { Match } from "../lib/api";
+import type { Match, OnboardingForm } from "../lib/api";
 
 /** Route params for the root native stack. */
 export type RootStackParamList = {
@@ -6,9 +6,9 @@ export type RootStackParamList = {
   Welcome: undefined;
   GetStarted: undefined;
   Login: undefined;
-  VerifyOtp: { email: string };
-  // Own stack while me.has_password is false (onboarding step 3)
-  CreatePassword: undefined;
+  // "signup" carries the profile to store once the email code verifies;
+  // "login" is the passwordless returning-user path.
+  VerifyOtp: { email: string; mode: "signup" | "login"; onboarding?: OnboardingForm };
   // Signed-in stack
   Home: undefined;
   // The match card carries everything above the fold; the curated university
