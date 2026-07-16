@@ -8,10 +8,11 @@ import { View, Text, StyleSheet } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { colors, fonts, radius } from "../theme";
+import { colors, fonts, radius, shadow } from "../theme";
 import { Wordmark, PrimaryButton, GhostButton, Chip } from "../components/ui";
 import { PinIcon } from "../components/icons";
 import { HeroIllustration } from "../components/HeroIllustration";
+import { FadeInUp } from "../components/motion";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
 
@@ -31,26 +32,30 @@ export default function WelcomeScreen({ navigation }: Props) {
           <Wordmark size={21} />
 
           {/* hero */}
-          <View style={styles.hero}>
-            <HeroIllustration />
-            <View style={styles.locationPill}>
-              <PinIcon size={12} color="#fff" />
-              <Text style={styles.locationText}>Helsinki, Finland</Text>
+          <FadeInUp>
+            <View style={styles.hero}>
+              <HeroIllustration />
+              <View style={styles.locationPill}>
+                <PinIcon size={12} color="#fff" />
+                <Text style={styles.locationText}>Helsinki, Finland</Text>
+              </View>
+              <View style={styles.savingsBadge}>
+                <Text style={styles.savingsBig}>80% less</Text>
+                <Text style={styles.savingsSub}>THAN A €1000 AGENT</Text>
+              </View>
             </View>
-            <View style={styles.savingsBadge}>
-              <Text style={styles.savingsBig}>80% less</Text>
-              <Text style={styles.savingsSub}>than a €1000 agent</Text>
-            </View>
-          </View>
+          </FadeInUp>
 
           {/* headline */}
-          <View style={styles.headlineBlock}>
-            <Text style={styles.headline}>Everything an agent does. Minus the €5,000.</Text>
-            <Text style={styles.subhead}>
-              We match you to Finnish master's programs, then handle admissions, visa,
-              flights and housing — start to boarding pass.
-            </Text>
-          </View>
+          <FadeInUp delay={90}>
+            <View style={styles.headlineBlock}>
+              <Text style={styles.headline}>Everything an agent does. Minus the €5,000.</Text>
+              <Text style={styles.subhead}>
+                We match you to Finnish master's programs, then handle admissions, visa,
+                flights and housing — start to boarding pass.
+              </Text>
+            </View>
+          </FadeInUp>
 
           <View style={styles.spacer} />
 
@@ -107,14 +112,11 @@ const styles = StyleSheet.create({
     paddingVertical: 11,
     paddingHorizontal: 14,
     borderRadius: radius.lg,
-    shadowColor: "#783C1E",
-    shadowOpacity: 0.5,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 4,
+    transform: [{ rotate: "-2deg" }],
+    ...shadow.raised,
   },
   savingsBig: { fontFamily: fonts.display, fontSize: 20, color: colors.accent, lineHeight: 20 },
-  savingsSub: { fontFamily: fonts.bodySemi, fontSize: 10.5, color: colors.textFaint, marginTop: 3 },
+  savingsSub: { fontFamily: fonts.mono, fontSize: 8.5, letterSpacing: 0.8, color: colors.textFaint, marginTop: 4 },
   headlineBlock: { marginTop: 26 },
   headline: {
     fontFamily: fonts.display,

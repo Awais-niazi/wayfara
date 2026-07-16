@@ -188,7 +188,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   codeBoxActive: { borderWidth: 1.5, borderColor: colors.accent },
-  codeDigit: { fontFamily: fonts.display, fontSize: 24, color: colors.ink },
+  codeDigit: { fontFamily: fonts.monoBold, fontSize: 24, color: colors.ink },
   hiddenInput: {
     position: "absolute",
     top: 0,

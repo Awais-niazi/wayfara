@@ -1,8 +1,10 @@
 /**
  * 08 — APPLICATIONS (the Apps tab)
- * Every programme the student is pursuing, ordered by their own priority:
- * status chip, document progress, deadline countdown. Tapping opens the
- * application workspace. Data: GET /api/v1/applications/.
+ * Every programme the student is pursuing, each one rendered as a boarding
+ * pass: uni code + passport-stamp status, the route to its city with the
+ * plane at the journey stage, then below the tear line the document count
+ * and deadline. Tapping opens the application workspace.
+ * Data: GET /api/v1/applications/.
  */
 import React, { useCallback, useState } from "react";
 import {
@@ -16,32 +18,46 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
-import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 
-import { colors, fonts, radius } from "../theme";
-import { ChevronLeftIcon, ChevronRightIcon, AppsIcon } from "../components/icons";
+import { colors, fonts, radius, shadow, spacing } from "../theme";
+import { AppsIcon } from "../components/icons";
+import { Barcode, CodeBadge, RouteLine, Stamp, TicketDivider, TicketField, cityCode, uniCode } from "../components/travel";
+import { FadeInUp, PressableScale, ProgressBar } from "../components/motion";
+
 import { getApplications, type Application, type ApplicationStatus } from "../lib/api";
-import type { RootStackParamList } from "../navigation/types";
+import type { TabScreenProps } from "../navigation/types";
 
-type Props = NativeStackScreenProps<RootStackParamList, "Applications">;
+type Props = TabScreenProps<"Apps">;
 
 export const STATUS_META: Record<ApplicationStatus, { label: string; ink: string; bg: string }> = {
   shortlisted: { label: "Shortlisted", ink: "#6B5CA5", bg: "#F3ECFB" },
   in_progress: { label: "Preparing", ink: "#B4841A", bg: "#FDF3DF" },
   submitted: { label: "Submitted", ink: "#2A6FDB", bg: "#E9F1FB" },
-  offer_received: { label: "Offer 🎉", ink: "#1F8A5B", bg: "#E8F4EC" },
+  offer_received: { label: "Offer", ink: "#1F8A5B", bg: "#E8F4EC" },
   waitlisted: { label: "Waitlisted", ink: "#B4841A", bg: "#FDF3DF" },
   rejected: { label: "Not accepted", ink: "#B3402A", bg: "#FCEBE7" },
-  place_confirmed: { label: "Place confirmed 🇫🇮", ink: "#1F8A5B", bg: "#E8F4EC" },
+  place_confirmed: { label: "Confirmed", ink: "#1F8A5B", bg: "#E8F4EC" },
   withdrawn: { label: "Withdrawn", ink: "#8C7B6B", bg: "#F1EAE0" },
+};
+
+/** Where the plane sits on the route for each status. */
+const STATUS_PROGRESS: Record<ApplicationStatus, number> = {
+  shortlisted: 0.08,
+  in_progress: 0.3,
+  submitted: 0.55,
+  waitlisted: 0.68,
+  offer_received: 0.85,
+  rejected: 0.55,
+  place_confirmed: 1,
+  withdrawn: 0,
 };
 
 function daysUntil(iso: string | null): string | null {
   if (!iso) return null;
   const days = Math.ceil((new Date(iso).getTime() - Date.now()) / 86400000);
-  if (days < 0) return "Deadline passed";
-  if (days === 0) return "Deadline today";
-  return `${days} day${days === 1 ? "" : "s"} to deadline`;
+  if (days < 0) return "PASSED";
+  if (days === 0) return "TODAY";
+  return `${days} DAY${days === 1 ? "" : "S"}`;
 }
 
 export default function ApplicationsScreen({ navigation }: Props) {
@@ -69,64 +85,75 @@ export default function ApplicationsScreen({ navigation }: Props) {
     }, [load]),
   );
 
-  const renderItem = ({ item }: { item: Application }) => {
+  const renderItem = ({ item, index }: { item: Application; index: number }) => {
     const meta = STATUS_META[item.status];
     const deadline = daysUntil(item.application_deadline);
+    const settled = ["rejected", "withdrawn"].includes(item.status);
     return (
-      <Pressable
-        onPress={() => navigation.navigate("ApplicationDetail", { id: item.id })}
-        accessibilityRole="button"
-        accessibilityLabel={`${item.university}, ${meta.label}. Open application`}
-        style={({ pressed }) => [styles.card, pressed && { opacity: 0.85 }]}
-      >
-        <View style={styles.cardTop}>
-          <View style={[styles.avatar, { backgroundColor: colors.accent }]}>
-            <Text style={styles.avatarText}>{item.university.charAt(0)}</Text>
+      <FadeInUp delay={index * 60}>
+        <PressableScale
+          onPress={() => navigation.navigate("ApplicationDetail", { id: item.id })}
+          accessibilityRole="button"
+          accessibilityLabel={`${item.university}, ${meta.label}. Open application`}
+          style={[styles.card, settled && { opacity: 0.62 }]}
+        >
+          <View style={styles.cardTop}>
+            <CodeBadge code={uniCode(item.university)} size={44} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.uniName} numberOfLines={1}>{item.university}</Text>
+              <Text style={styles.programName} numberOfLines={1}>{item.program_name}</Text>
+            </View>
+            <Stamp label={meta.label} ink={meta.ink} tilt={2} />
           </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.uniName} numberOfLines={1}>{item.university}</Text>
-            <Text style={styles.programName} numberOfLines={1}>{item.program_name}</Text>
+
+          <View style={styles.routeBox}>
+            <RouteLine
+              from="PAK"
+              to={cityCode(item.city)}
+              progress={STATUS_PROGRESS[item.status]}
+              tint={settled ? colors.textFaintest : colors.accent}
+            />
           </View>
-          <ChevronRightIcon size={18} color="#B9A99A" />
-        </View>
-        <View style={styles.cardBottom}>
-          <View style={[styles.statusChip, { backgroundColor: meta.bg }]}>
-            <Text style={[styles.statusChipText, { color: meta.ink }]}>{meta.label}</Text>
+
+          <TicketDivider inset={16} />
+
+          <View style={styles.cardBottom}>
+            <View style={{ flex: 1 }}>
+              <TicketField label="Documents" value={`${item.docs_ready}/${item.docs_total}`} />
+              <ProgressBar
+                progress={item.docs_total ? item.docs_ready / item.docs_total : 0}
+                tint={colors.accent}
+                height={5}
+                style={{ marginTop: 7, maxWidth: 120 }}
+              />
+            </View>
+            {deadline !== null && (
+              <TicketField
+                label="Deadline in"
+                value={deadline}
+                align="right"
+                valueColor={deadline === "PASSED" ? colors.textFaintest : colors.warningInkSoft}
+              />
+            )}
           </View>
-          <Text style={styles.docsText}>
-            {item.docs_ready}/{item.docs_total} documents
-          </Text>
-          {deadline !== null && <Text style={styles.deadlineText}>{deadline}</Text>}
-        </View>
-        {/* docs progress track */}
-        <View style={styles.track}>
-          <View
-            style={[
-              styles.trackFill,
-              {
-                width: `${item.docs_total ? (item.docs_ready / item.docs_total) * 100 : 0}%`,
-              },
-            ]}
-          />
-        </View>
-      </Pressable>
+
+          <View style={styles.barcodeRow}>
+            <Barcode seed={item.id * 7919} height={16} color="#CDBBA4" />
+            <Text style={styles.gateText}>GATE · STUDYINFO.FI</Text>
+          </View>
+        </PressableScale>
+      </FadeInUp>
     );
   };
 
   return (
     <SafeAreaView edges={["top"]} style={styles.root}>
-      <View style={styles.topBar}>
-        <Pressable
-          onPress={navigation.goBack}
-          accessibilityRole="button"
-          accessibilityLabel="Go back"
-          hitSlop={8}
-          style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.7 }]}
-        >
-          <ChevronLeftIcon size={20} />
-        </Pressable>
-        <Text style={styles.title}>My applications</Text>
-      </View>
+      <FadeInUp>
+        <View style={styles.topBar}>
+          <Text style={styles.overline}>BOARDING PASSES</Text>
+          <Text style={styles.title}>My applications</Text>
+        </View>
+      </FadeInUp>
 
       {loading && (
         <View style={styles.centerBox}>
@@ -147,6 +174,7 @@ export default function ApplicationsScreen({ navigation }: Props) {
           keyExtractor={(a) => String(a.id)}
           renderItem={renderItem}
           contentContainerStyle={styles.list}
+          showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -159,17 +187,17 @@ export default function ApplicationsScreen({ navigation }: Props) {
               <View style={styles.emptyBadge}>
                 <AppsIcon size={24} color={colors.accent} />
               </View>
-              <Text style={styles.emptyTitle}>No applications yet</Text>
+              <Text style={styles.emptyTitle}>No boarding passes yet</Text>
               <Text style={styles.emptyText}>
                 Find a programme you like in your matches and tap "Add to my
                 applications" — we'll build your document checklist for it.
               </Text>
-              <Pressable
-                onPress={() => navigation.navigate("Home")}
-                style={({ pressed }) => [styles.emptyBtn, pressed && { opacity: 0.8 }]}
+              <PressableScale
+                onPress={() => navigation.navigate("Explore")}
+                style={styles.emptyBtn}
               >
                 <Text style={styles.emptyBtnText}>Browse my matches</Text>
-              </Pressable>
+              </PressableScale>
             </View>
           }
         />
@@ -180,25 +208,9 @@ export default function ApplicationsScreen({ navigation }: Props) {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.canvas },
-  topBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 6,
-  },
-  backBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: "#fff",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  title: { fontFamily: fonts.display, fontSize: 20, letterSpacing: -0.4, color: colors.ink },
+  topBar: { paddingHorizontal: 20, paddingTop: 14, paddingBottom: 6 },
+  overline: { fontFamily: fonts.mono, fontSize: 9.5, letterSpacing: 1.6, color: colors.textFaintest },
+  title: { fontFamily: fonts.display, fontSize: 24, letterSpacing: -0.5, color: colors.ink, marginTop: 4 },
 
   centerBox: { alignItems: "center", paddingVertical: 60, paddingHorizontal: 32, gap: 8 },
   errorBox: {
@@ -214,28 +226,33 @@ const styles = StyleSheet.create({
   errorText: { fontFamily: fonts.bodySemi, fontSize: 13.5, color: "#B3402A" },
   errorRetry: { fontFamily: fonts.bodyBold, fontSize: 13, color: colors.accent },
 
-  list: { padding: 16, gap: 12, flexGrow: 1 },
+  list: { padding: 20, paddingTop: 12, gap: 14, flexGrow: 1, paddingBottom: spacing.tabClearance },
   card: {
     backgroundColor: "#fff",
     borderWidth: 1,
     borderColor: colors.borderSoft,
     borderRadius: radius["2xl"],
-    padding: 15,
+    paddingHorizontal: 16,
+    paddingTop: 15,
+    paddingBottom: 12,
+    overflow: "hidden",
+    ...shadow.card,
   },
   cardTop: { flexDirection: "row", alignItems: "center", gap: 12 },
-  avatar: { width: 42, height: 42, borderRadius: 13, alignItems: "center", justifyContent: "center" },
-  avatarText: { fontFamily: fonts.display, fontSize: 17, color: "#fff" },
   uniName: { fontFamily: fonts.bodyBold, fontSize: 14.5, color: colors.ink },
   programName: { fontFamily: fonts.bodyRegular, fontSize: 12.5, color: colors.textFaint, marginTop: 1 },
 
-  cardBottom: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 12 },
-  statusChip: { paddingVertical: 4, paddingHorizontal: 10, borderRadius: radius.pill },
-  statusChipText: { fontFamily: fonts.bodyBold, fontSize: 11.5 },
-  docsText: { fontFamily: fonts.bodySemi, fontSize: 12, color: colors.textFaint },
-  deadlineText: { fontFamily: fonts.bodySemi, fontSize: 11.5, color: "#B4841A", marginLeft: "auto" },
+  routeBox: { marginTop: 14, marginBottom: 2 },
 
-  track: { height: 6, borderRadius: radius.pill, backgroundColor: "#F1E7DA", marginTop: 11, overflow: "hidden" },
-  trackFill: { height: "100%", borderRadius: radius.pill, backgroundColor: colors.accent },
+  cardBottom: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", marginTop: 2 },
+
+  barcodeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 12,
+  },
+  gateText: { fontFamily: fonts.mono, fontSize: 8.5, letterSpacing: 1.2, color: colors.textFaintest },
 
   emptyBadge: {
     width: 54,
@@ -262,6 +279,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.accent,
     alignItems: "center",
     justifyContent: "center",
+    ...shadow.accent,
   },
   emptyBtnText: { fontFamily: fonts.displaySemi, fontSize: 14, color: "#fff" },
 });

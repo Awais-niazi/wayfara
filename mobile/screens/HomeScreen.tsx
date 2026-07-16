@@ -5,7 +5,10 @@
  *   - match cards     ← GET /api/matches/  (best fit first)
  *   - journey card    ← GET /api/tasks/    (per-phase progress)
  *   - next action     ← first pending task by due date
- * The savings banner and quick-actions grid remain static design elements.
+ * Visual language: travel documents — match cards read as mini boarding
+ * passes (route PAK → destination city), the AI picks ride in a dark
+ * "first-class" card, progress is a flight plan. The tab dock is global
+ * (navigation/MainTabs), not drawn here.
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -19,11 +22,9 @@ import {
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { SafeAreaView } from "react-native-safe-area-context";
-import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 
-import type { RootStackParamList } from "../navigation/types";
-
-import { colors, fonts, radius } from "../theme";
+import type { TabScreenProps } from "../navigation/types";
+import { colors, fonts, radius, shadow, spacing } from "../theme";
 import {
   BellIcon,
   ChevronRightIcon,
@@ -32,12 +33,10 @@ import {
   PlaneIcon,
   HousingIcon,
   SparkleIcon,
-  HomeIcon,
-  CompassIcon,
-  AppsIcon,
-  ChatIcon,
-  ProfileIcon,
 } from "../components/icons";
+import { CodeBadge, RouteLine, Stamp, TicketDivider, TicketField, cityCode, uniCode } from "../components/travel";
+import { FadeInUp, PressableScale, ProgressBar } from "../components/motion";
+
 import {
   getAiMatches,
   getMatches,
@@ -50,32 +49,15 @@ import {
   type Task,
 } from "../lib/api";
 
-// Rotating visual identity for match cards (avatar + hero tint).
-const CARD_COLORS = [
-  { badge: colors.accent, hero: "#EAD9C0" },
-  { badge: "#C7502F", hero: "#E4D2E8" },
-  { badge: "#F49A1A", hero: "#E2DFC6" },
-  { badge: "#1F8A5B", hero: "#D8E8DC" },
-  { badge: "#2A6FDB", hero: "#D9E4F2" },
-];
+type QuickAction = { key: string; title: string; sub: string; icon: React.ReactNode };
 
-type QuickAction = { key: string; title: string; sub: string; bg: string; icon: React.ReactNode };
-
+// Static service tiles — honest about not being live yet (SOON tag).
 const QUICK_ACTIONS: QuickAction[] = [
-  { key: "visa", title: "Visa", sub: "Residence permit", bg: "#FBEEE7", icon: <VisaIcon color="#F8593C" /> },
-  { key: "flights", title: "Flights", sub: "To Helsinki", bg: "#E9F1FB", icon: <PlaneIcon color="#2A6FDB" /> },
-  { key: "housing", title: "Housing", sub: "Student rooms", bg: "#E8F4EC", icon: <HousingIcon color="#1F8A5B" /> },
-  { key: "advisor", title: "Advisor", sub: "AI + human", bg: "#F3ECFB", icon: <SparkleIcon color="#7B4FD6" /> },
+  { key: "visa", title: "Visa", sub: "Residence permit", icon: <VisaIcon color={colors.ink} /> },
+  { key: "flights", title: "Flights", sub: "To Helsinki", icon: <PlaneIcon color={colors.ink} /> },
+  { key: "housing", title: "Housing", sub: "Student rooms", icon: <HousingIcon color={colors.ink} /> },
+  { key: "advisor", title: "Advisor", sub: "AI + human", icon: <SparkleIcon color={colors.ink} /> },
 ];
-
-// Tabs without a target yet (Apps, Chat) render disabled rather than dead.
-const TABS = [
-  { key: "home", label: "Home", Icon: HomeIcon, active: true, target: null },
-  { key: "explore", label: "Explore", Icon: CompassIcon, active: false, target: "matches" },
-  { key: "apps", label: "Apps", Icon: AppsIcon, active: false, target: "applications" },
-  { key: "chat", label: "Chat", Icon: ChatIcon, active: false, target: null },
-  { key: "profile", label: "Profile", Icon: ProfileIcon, active: false, target: "profile" },
-] as const;
 
 const euro = (v: string | null) =>
   v === null ? "—" : `€${Math.round(parseFloat(v)).toLocaleString("en-US")}`;
@@ -85,50 +67,47 @@ const shortDate = (iso: string | null) =>
     ? "—"
     : new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 
+const deadlineSoon = (iso: string | null) =>
+  iso !== null && new Date(iso).getTime() - Date.now() < 30 * 86400000;
 
+/** Mini boarding pass: code + match stamp, route to the destination city. */
 function UniCard({ match, index, onPress }: { match: Match; index: number; onPress: () => void }) {
-  const c = CARD_COLORS[index % CARD_COLORS.length];
   const pct = Math.round(parseFloat(match.score));
   return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={`${match.university}, ${pct}% match. View programme details`}
-      style={({ pressed }) => [styles.uniCard, pressed && { opacity: 0.85 }]}
-    >
-      <View style={[styles.uniHero, { backgroundColor: c.hero }]}>
-        <Text style={styles.uniHeroText}>campus</Text>
-        <View style={styles.matchBadge}>
-          <Text style={styles.matchText}>{pct}% match</Text>
+    <FadeInUp delay={120 + index * 70}>
+      <PressableScale
+        onPress={onPress}
+        accessibilityRole="button"
+        accessibilityLabel={`${match.university}, ${pct}% match. View programme details`}
+        style={styles.uniCard}
+      >
+        <View style={styles.uniTop}>
+          <CodeBadge code={uniCode(match.university)} size={42} />
+          <Stamp label={`${pct}% match`} ink={colors.success} tilt={2} />
         </View>
-        <View style={[styles.uniAvatar, { backgroundColor: c.badge }]}>
-          <Text style={styles.uniAvatarText}>{match.university.charAt(0)}</Text>
-        </View>
-      </View>
-      <View style={styles.uniBody}>
         <Text style={styles.uniName} numberOfLines={1}>{match.university}</Text>
         <Text style={styles.uniMeta} numberOfLines={1}>
-          {match.city} · {match.program_name}
+          {match.program_name} · {match.city}
         </Text>
+        <View style={styles.uniRoute}>
+          <RouteLine from="PAK" to={cityCode(match.city)} progress={pct / 100} />
+        </View>
+        <TicketDivider inset={16} />
         <View style={styles.uniStats}>
-          <View>
-            <Text style={styles.statLabel}>Tuition/yr</Text>
-            <Text style={styles.statValue}>{euro(match.tuition_fee_eur)}</Text>
-          </View>
-          <View>
-            <Text style={styles.statLabel}>Deadline</Text>
-            <Text style={styles.statValue}>{shortDate(match.application_deadline)}</Text>
-          </View>
+          <TicketField label="Tuition / yr" value={euro(match.tuition_fee_eur)} />
+          <TicketField
+            label="Deadline"
+            value={shortDate(match.application_deadline)}
+            align="right"
+            valueColor={deadlineSoon(match.application_deadline) ? colors.accent : colors.ink}
+          />
         </View>
-        <View style={styles.viewBtn}>
-          <Text style={styles.viewBtnText}>View program</Text>
-        </View>
-      </View>
-    </Pressable>
+      </PressableScale>
+    </FadeInUp>
   );
 }
 
-type Props = NativeStackScreenProps<RootStackParamList, "Home">;
+type Props = TabScreenProps<"Home">;
 
 export default function HomeScreen({ navigation }: Props) {
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -188,11 +167,9 @@ export default function HomeScreen({ navigation }: Props) {
   // Greet by first name; email prefix only as a last resort for legacy rows.
   const displayName = profile?.first_name || profile?.email.split("@")[0] || "there";
 
-  const today = new Date().toLocaleDateString("en-GB", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-  });
+  const today = new Date()
+    .toLocaleDateString("en-GB", { weekday: "short", day: "2-digit", month: "short" })
+    .toUpperCase();
 
   // Journey progress: tasks grouped by phase, current phase first.
   const phaseProgress = useMemo(() => {
@@ -237,54 +214,56 @@ export default function HomeScreen({ navigation }: Props) {
         <SafeAreaView edges={["top"]}>
           <View style={styles.pad}>
             {/* top bar */}
-            <View style={styles.topBar}>
-              <View style={{ flex: 1, paddingRight: 10 }}>
-                <Text style={styles.date}>{today}</Text>
-                <Text style={styles.greeting} numberOfLines={1}>
-                  Welcome aboard, {displayName}
-                </Text>
-                <Text style={styles.greetingQuote}>
-                  You are exactly where you need to be
-                </Text>
-              </View>
-              <View style={styles.topActions}>
-                <Pressable
-                  onPress={() => navigation.navigate("Notifications")}
-                  accessibilityRole="button"
-                  accessibilityLabel={
-                    unreadCount > 0
-                      ? `Notifications, ${unreadCount} unread`
-                      : "Notifications"
-                  }
-                  style={styles.iconBtn}
-                >
-                  <BellIcon size={20} color="#4A3D31" />
-                  {unreadCount > 0 && (
-                    <View style={styles.notifBadge}>
-                      <Text style={styles.notifBadgeText}>
-                        {unreadCount > 9 ? "9+" : unreadCount}
+            <FadeInUp>
+              <View style={styles.topBar}>
+                <View style={{ flex: 1, paddingRight: 10 }}>
+                  <Text style={styles.date}>{today} · PAK → FIN</Text>
+                  <Text style={styles.greeting} numberOfLines={1}>
+                    Welcome aboard, {displayName}
+                  </Text>
+                  <Text style={styles.greetingQuote}>
+                    You are exactly where you need to be
+                  </Text>
+                </View>
+                <View style={styles.topActions}>
+                  <PressableScale
+                    onPress={() => navigation.navigate("Notifications")}
+                    accessibilityRole="button"
+                    accessibilityLabel={
+                      unreadCount > 0
+                        ? `Notifications, ${unreadCount} unread`
+                        : "Notifications"
+                    }
+                    style={styles.iconBtn}
+                  >
+                    <BellIcon size={20} color="#4A3D31" />
+                    {unreadCount > 0 && (
+                      <View style={styles.notifBadge}>
+                        <Text style={styles.notifBadgeText}>
+                          {unreadCount > 9 ? "9+" : unreadCount}
+                        </Text>
+                      </View>
+                    )}
+                  </PressableScale>
+                  <PressableScale
+                    onPress={() => navigation.navigate("Profile")}
+                    accessibilityRole="button"
+                    accessibilityLabel="Open your profile"
+                  >
+                    <LinearGradient colors={["#FFB43A", colors.accent]} style={styles.avatar}>
+                      <Text style={styles.avatarText}>
+                        {displayName.charAt(0).toUpperCase()}
                       </Text>
-                    </View>
-                  )}
-                </Pressable>
-                <Pressable
-                  onPress={() => navigation.navigate("Profile")}
-                  accessibilityRole="button"
-                  accessibilityLabel="Open your profile"
-                >
-                  <LinearGradient colors={["#FFB43A", colors.accent]} style={styles.avatar}>
-                    <Text style={styles.avatarText}>
-                      {displayName.charAt(0).toUpperCase()}
-                    </Text>
-                  </LinearGradient>
-                </Pressable>
+                    </LinearGradient>
+                  </PressableScale>
+                </View>
               </View>
-            </View>
+            </FadeInUp>
 
             {loading && (
               <View style={styles.loadingBox}>
                 <ActivityIndicator color={colors.accent} />
-                <Text style={styles.loadingText}>Loading your journey…</Text>
+                <Text style={styles.loadingText}>PREPARING YOUR JOURNEY…</Text>
               </View>
             )}
 
@@ -297,51 +276,53 @@ export default function HomeScreen({ navigation }: Props) {
 
             {/* AI picks — the free AI-layer showcase, above the system matches */}
             {!loading && !error && aiMatches.length > 0 && (
-              <View style={styles.aiCard}>
-                <View style={styles.aiHead}>
-                  <View style={styles.aiBadge}>
-                    <SparkleIcon size={16} color="#fff" />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.aiTitle}>AI picks for you</Text>
-                    <Text style={styles.aiSub}>Hand-picked from your full profile</Text>
-                  </View>
-                </View>
-                {aiMatches.map((m, i) => (
-                  <Pressable
-                    key={m.id}
-                    onPress={() => navigation.navigate("MatchDetail", { match: m })}
-                    accessibilityRole="button"
-                    accessibilityLabel={`AI pick: ${m.university}. View details`}
-                    style={({ pressed }) => [
-                      styles.aiRow,
-                      i === aiMatches.length - 1 && { borderBottomWidth: 0 },
-                      pressed && { opacity: 0.7 },
-                    ]}
-                  >
-                    <View style={styles.aiRank}>
-                      <Text style={styles.aiRankText}>{i + 1}</Text>
+              <FadeInUp delay={60}>
+                <View style={styles.aiCard}>
+                  <View style={styles.aiHead}>
+                    <View style={styles.aiBadge}>
+                      <SparkleIcon size={16} color={colors.ink} />
                     </View>
                     <View style={{ flex: 1 }}>
-                      <Text style={styles.aiUni} numberOfLines={1}>{m.university}</Text>
-                      <Text style={styles.aiReason} numberOfLines={2}>
-                        {m.reason || `${m.program_name} · ${m.city}`}
-                      </Text>
+                      <Text style={styles.aiTitle}>AI picks for you</Text>
+                      <Text style={styles.aiSub}>Hand-picked from your full profile</Text>
                     </View>
-                    <ChevronRightIcon size={16} color="#B9A5E8" />
-                  </Pressable>
-                ))}
-              </View>
+                    <Text style={styles.aiTag}>FIRST CLASS</Text>
+                  </View>
+                  {aiMatches.map((m, i) => (
+                    <Pressable
+                      key={m.id}
+                      onPress={() => navigation.navigate("MatchDetail", { match: m })}
+                      accessibilityRole="button"
+                      accessibilityLabel={`AI pick: ${m.university}. View details`}
+                      style={({ pressed }) => [
+                        styles.aiRow,
+                        i === aiMatches.length - 1 && { borderBottomWidth: 0 },
+                        pressed && { opacity: 0.7 },
+                      ]}
+                    >
+                      <Text style={styles.aiRank}>{String(i + 1).padStart(2, "0")}</Text>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.aiUni} numberOfLines={1}>{m.university}</Text>
+                        <Text style={styles.aiReason} numberOfLines={2}>
+                          {m.reason || `${m.program_name} · ${m.city}`}
+                        </Text>
+                      </View>
+                      <ChevronRightIcon size={16} color="#C9B490" />
+                    </Pressable>
+                  ))}
+                </View>
+              </FadeInUp>
             )}
 
             {/* recommended header */}
             {!loading && !error && (
-              <>
+              <FadeInUp delay={100}>
+                <Text style={styles.overline}>DEPARTURES — FINLAND</Text>
                 <View style={styles.sectionHead}>
                   <Text style={styles.sectionTitle}>Recommended for you</Text>
                   {matches.length > 0 && (
                     <Pressable
-                      onPress={() => navigation.navigate("Matches", { matches })}
+                      onPress={() => navigation.navigate("Explore")}
                       accessibilityRole="button"
                       accessibilityLabel={`See all ${matches.length} matches`}
                       hitSlop={10}
@@ -357,7 +338,7 @@ export default function HomeScreen({ navigation }: Props) {
                       : "Matched to your profile"
                     : "We're matching universities to your profile — check back in a minute."}
                 </Text>
-              </>
+              </FadeInUp>
             )}
           </View>
 
@@ -383,133 +364,96 @@ export default function HomeScreen({ navigation }: Props) {
             <View style={styles.pad}>
               {/* journey progress (from the timeline engine) */}
               {phaseProgress.length > 0 && (
-                <View style={styles.appsCard}>
-                  <View style={styles.appsHead}>
-                    <Text style={styles.appsTitle}>Your journey</Text>
-                    <View style={styles.activePill}>
-                      <Text style={styles.activePillText}>
-                        {tasks.filter((t) => t.status === "pending").length} to do
-                      </Text>
+                <FadeInUp delay={180}>
+                  <View style={styles.appsCard}>
+                    <View style={styles.appsHead}>
+                      <View>
+                        <Text style={styles.overlineTight}>FLIGHT PLAN</Text>
+                        <Text style={styles.appsTitle}>Your journey</Text>
+                      </View>
+                      <View style={styles.activePill}>
+                        <Text style={styles.activePillText}>
+                          {tasks.filter((t) => t.status === "pending").length} TO DO
+                        </Text>
+                      </View>
                     </View>
-                  </View>
-                  <View style={styles.appsList}>
-                    {phaseProgress.map(({ phase, done, total }, i) => {
-                      const c = CARD_COLORS[i % CARD_COLORS.length].badge;
-                      return (
+                    <View style={styles.appsList}>
+                      {phaseProgress.map(({ phase, done, total }) => (
                         <View key={phase}>
                           <View style={styles.appRow}>
                             <View style={styles.appRowLeft}>
-                              <View style={[styles.appBadge, { backgroundColor: c }]}>
-                                <Text style={styles.appBadgeText}>{phase}</Text>
-                              </View>
+                              <Text style={styles.appLeg}>LEG {String(phase).padStart(2, "0")}</Text>
                               <Text style={styles.appLabel}>Phase {phase}</Text>
                             </View>
                             <Text style={styles.appSteps}>
-                              {done} / {total} tasks
+                              {done}/{total} TASKS
                             </Text>
                           </View>
-                          <View style={styles.track}>
-                            <View
-                              style={[
-                                styles.trackFill,
-                                { width: `${total ? (done / total) * 100 : 0}%`, backgroundColor: c },
-                              ]}
-                            />
-                          </View>
+                          <ProgressBar
+                            progress={total ? done / total : 0}
+                            tint={colors.accent}
+                            style={{ marginTop: 9 }}
+                          />
                         </View>
-                      );
-                    })}
+                      ))}
+                    </View>
                   </View>
-                </View>
+                </FadeInUp>
               )}
 
               {/* next action */}
               {nextTask && (
-                <Pressable style={styles.nextCard}>
-                  <View style={styles.nextIcon}>
-                    <UploadIcon size={20} color="#fff" />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.nextCaption}>
-                      NEXT UP · DUE {shortDate(nextTask.due_date).toUpperCase()}
-                    </Text>
-                    <Text style={styles.nextTitle} numberOfLines={2}>
-                      {nextTask.title}
-                    </Text>
-                  </View>
-                  <ChevronRightIcon size={20} color="#B4841A" />
-                </Pressable>
+                <FadeInUp delay={240}>
+                  <PressableScale style={styles.nextCard}>
+                    <View style={styles.nextIcon}>
+                      <UploadIcon size={20} color="#fff" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.nextCaption}>
+                        NEXT UP · DUE {shortDate(nextTask.due_date).toUpperCase()}
+                      </Text>
+                      <Text style={styles.nextTitle} numberOfLines={2}>
+                        {nextTask.title}
+                      </Text>
+                    </View>
+                    <ChevronRightIcon size={20} color="#B4841A" />
+                  </PressableScale>
+                </FadeInUp>
               )}
 
-              {/* quick actions */}
-              <Text style={styles.sectionTitleLoose}>Get it all done</Text>
-              <View style={styles.grid}>
-                {QUICK_ACTIONS.map((q) => (
-                  <Pressable key={q.key} style={styles.gridCell}>
-                    <View style={[styles.gridIcon, { backgroundColor: q.bg }]}>{q.icon}</View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.gridTitle}>{q.title}</Text>
-                      <Text style={styles.gridSub}>{q.sub}</Text>
+              {/* services */}
+              <FadeInUp delay={300}>
+                <Text style={styles.overlineLoose}>SERVICES</Text>
+                <Text style={styles.sectionTitleTight}>Get it all done</Text>
+                <View style={styles.grid}>
+                  {QUICK_ACTIONS.map((q) => (
+                    <View key={q.key} style={styles.gridCell}>
+                      <View style={styles.gridIcon}>{q.icon}</View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.gridTitle}>{q.title}</Text>
+                        <Text style={styles.gridSub}>{q.sub}</Text>
+                      </View>
+                      <Text style={styles.soonTag}>SOON</Text>
                     </View>
-                  </Pressable>
-                ))}
-              </View>
+                  ))}
+                </View>
+              </FadeInUp>
             </View>
           )}
         </SafeAreaView>
       </ScrollView>
-
-      {/* bottom tab bar */}
-      <SafeAreaView edges={["bottom"]} style={styles.tabBarWrap}>
-        <View style={styles.tabBar}>
-          {TABS.map(({ key, label, Icon, active, target }) => {
-            const enabled = active || target !== null;
-            const color = active ? colors.accent : "#A99B8D";
-            const onPress = () => {
-              if (target === "matches") navigation.navigate("Matches", { matches });
-              if (target === "profile") navigation.navigate("Profile");
-              if (target === "applications") navigation.navigate("Applications");
-            };
-            return (
-              <Pressable
-                key={key}
-                onPress={target === null ? undefined : onPress}
-                disabled={!enabled}
-                accessibilityRole="button"
-                accessibilityLabel={label}
-                accessibilityState={{ selected: active, disabled: !enabled }}
-                style={({ pressed }) => [
-                  styles.tab,
-                  !enabled && { opacity: 0.45 },
-                  pressed && { opacity: 0.6 },
-                ]}
-              >
-                <Icon size={24} color={color} />
-                <Text
-                  style={[
-                    styles.tabLabel,
-                    { color, fontFamily: active ? fonts.bodyBold : fonts.bodySemi },
-                  ]}
-                >
-                  {label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-      </SafeAreaView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.canvas },
-  scrollBody: { paddingBottom: 20 },
+  scrollBody: { paddingBottom: spacing.tabClearance },
   pad: { paddingHorizontal: 20 },
 
   topBar: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", paddingTop: 4 },
-  date: { fontFamily: fonts.bodySemi, fontSize: 12.5, color: colors.textFaintest, letterSpacing: 0.2 },
-  greeting: { fontFamily: fonts.welcomeSerif, fontSize: 26, color: colors.ink, marginTop: 3 },
+  date: { fontFamily: fonts.mono, fontSize: 10.5, color: colors.textFaintest, letterSpacing: 1.2 },
+  greeting: { fontFamily: fonts.welcomeSerif, fontSize: 26, color: colors.ink, marginTop: 4 },
   // Calligraphic fonts carry huge ascenders/descenders — the roomy lineHeight
   // keeps Zapfino/Great Vibes from clipping.
   greetingQuote: {
@@ -548,8 +492,8 @@ const styles = StyleSheet.create({
   avatar: { width: 44, height: 44, borderRadius: 13, alignItems: "center", justifyContent: "center" },
   avatarText: { fontFamily: fonts.display, fontSize: 16, color: "#fff" },
 
-  loadingBox: { alignItems: "center", gap: 10, paddingVertical: 60 },
-  loadingText: { fontFamily: fonts.bodySemi, fontSize: 13.5, color: colors.textFaint },
+  loadingBox: { alignItems: "center", gap: 12, paddingVertical: 60 },
+  loadingText: { fontFamily: fonts.mono, fontSize: 10.5, letterSpacing: 1.4, color: colors.textFaint },
   errorBox: {
     marginTop: 24,
     backgroundColor: "#FCEBE7",
@@ -563,109 +507,79 @@ const styles = StyleSheet.create({
   errorText: { fontFamily: fonts.bodySemi, fontSize: 13.5, color: "#B3402A", textAlign: "center" },
   errorRetry: { fontFamily: fonts.bodyBold, fontSize: 13, color: colors.accent },
 
+  // The dark "first-class" card — the one non-cream surface on the screen.
   aiCard: {
     marginTop: 24,
-    backgroundColor: "#F6F1FC",
-    borderWidth: 1,
-    borderColor: "#E3D5F5",
+    backgroundColor: colors.ink,
     borderRadius: radius["2xl"],
     paddingHorizontal: 16,
     paddingTop: 16,
     paddingBottom: 4,
+    ...shadow.raised,
   },
   aiHead: { flexDirection: "row", alignItems: "center", gap: 11, paddingBottom: 6 },
   aiBadge: {
     width: 34,
     height: 34,
     borderRadius: 11,
-    backgroundColor: "#7B4FD6",
+    backgroundColor: "#F4C664",
     alignItems: "center",
     justifyContent: "center",
   },
-  aiTitle: { fontFamily: fonts.display, fontSize: 15.5, color: colors.ink },
-  aiSub: { fontFamily: fonts.bodyRegular, fontSize: 11.5, color: "#8A76B0", marginTop: 1 },
+  aiTitle: { fontFamily: fonts.display, fontSize: 15.5, color: "#FBF6EF" },
+  aiSub: { fontFamily: fonts.bodyRegular, fontSize: 11.5, color: "#B9A88F", marginTop: 1 },
+  aiTag: { fontFamily: fonts.monoBold, fontSize: 8.5, letterSpacing: 1.4, color: "#F4C664" },
   aiRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 11,
+    gap: 12,
     paddingVertical: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#E3D5F5",
+    borderBottomColor: "#4A3D31",
   },
-  aiRank: {
-    width: 26,
-    height: 26,
-    borderRadius: 9,
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: "#E3D5F5",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  aiRankText: { fontFamily: fonts.display, fontSize: 12.5, color: "#7B4FD6" },
-  aiUni: { fontFamily: fonts.bodyBold, fontSize: 13.5, color: colors.ink },
-  aiReason: { fontFamily: fonts.bodyRegular, fontSize: 11.5, color: colors.textFaint, marginTop: 1, lineHeight: 15 },
+  aiRank: { fontFamily: fonts.monoBold, fontSize: 13, color: "#F4C664" },
+  aiUni: { fontFamily: fonts.bodyBold, fontSize: 13.5, color: "#FBF6EF" },
+  aiReason: { fontFamily: fonts.bodyRegular, fontSize: 11.5, color: "#B9A88F", marginTop: 1, lineHeight: 15 },
 
-  sectionHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 26 },
+  overline: {
+    fontFamily: fonts.mono,
+    fontSize: 9.5,
+    letterSpacing: 1.6,
+    color: colors.textFaintest,
+    marginTop: 28,
+  },
+  overlineTight: { fontFamily: fonts.mono, fontSize: 9, letterSpacing: 1.6, color: colors.textFaintest },
+  overlineLoose: {
+    fontFamily: fonts.mono,
+    fontSize: 9.5,
+    letterSpacing: 1.6,
+    color: colors.textFaintest,
+    marginTop: 30,
+  },
+  sectionHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 3 },
   sectionTitle: { fontFamily: fonts.display, fontSize: 18, letterSpacing: -0.3, color: colors.ink },
-  sectionTitleLoose: { fontFamily: fonts.display, fontSize: 18, letterSpacing: -0.3, color: colors.ink, marginTop: 26 },
+  sectionTitleTight: { fontFamily: fonts.display, fontSize: 18, letterSpacing: -0.3, color: colors.ink, marginTop: 3 },
   seeAll: { fontFamily: fonts.bodySemi, fontSize: 13, color: colors.accent },
   sectionSub: { fontFamily: fonts.bodyRegular, fontSize: 12.5, color: colors.textFaint, marginTop: 2 },
 
-  uniRow: { gap: 14, paddingHorizontal: 20, paddingTop: 14, paddingBottom: 6 },
+  uniRow: { gap: 14, paddingHorizontal: 20, paddingTop: 14, paddingBottom: 10 },
   uniCard: {
-    width: 236,
+    width: 250,
     backgroundColor: "#fff",
     borderRadius: radius["3xl"],
-    overflow: "hidden",
     borderWidth: 1,
     borderColor: colors.borderSoft,
-    shadowColor: "#5A3719",
-    shadowOpacity: 0.28,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: 14 },
-    elevation: 3,
+    paddingHorizontal: 16,
+    paddingTop: 15,
+    paddingBottom: 14,
+    overflow: "hidden",
+    ...shadow.card,
   },
-  uniHero: { height: 116, alignItems: "center", justifyContent: "center" },
-  uniHeroText: { fontFamily: fonts.bodySemi, fontSize: 9.5, letterSpacing: 0.8, color: "#AD977E" },
-  matchBadge: {
-    position: "absolute",
-    top: 10,
-    right: 10,
-    backgroundColor: "rgba(255,255,255,0.92)",
-    paddingVertical: 5,
-    paddingHorizontal: 10,
-    borderRadius: radius.pill,
-  },
-  matchText: { fontFamily: fonts.display, fontSize: 12, color: colors.success },
-  uniAvatar: {
-    position: "absolute",
-    bottom: -18,
-    left: 14,
-    width: 42,
-    height: 42,
-    borderRadius: 12,
-    borderWidth: 3,
-    borderColor: "#fff",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  uniAvatarText: { fontFamily: fonts.display, fontSize: 18, color: "#fff" },
-  uniBody: { paddingTop: 26, paddingHorizontal: 15, paddingBottom: 16 },
-  uniName: { fontFamily: fonts.display, fontSize: 15.5, color: colors.ink },
+  uniTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  uniName: { fontFamily: fonts.display, fontSize: 15.5, color: colors.ink, marginTop: 12 },
   uniMeta: { fontFamily: fonts.bodyRegular, fontSize: 12, color: colors.textFaint, marginTop: 2 },
-  uniStats: { flexDirection: "row", gap: 14, marginTop: 13 },
-  statLabel: { fontFamily: fonts.bodySemi, fontSize: 10.5, color: colors.textFaintest },
-  statValue: { fontFamily: fonts.display, fontSize: 14, color: colors.ink },
-  viewBtn: {
-    height: 40,
-    marginTop: 14,
-    borderRadius: radius.md,
-    backgroundColor: colors.accentSoft,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  viewBtnText: { fontFamily: fonts.displaySemi, fontSize: 13.5, color: colors.accent },
+  uniRoute: { marginTop: 13 },
+  uniStats: { flexDirection: "row", justifyContent: "space-between", marginTop: 2 },
 
   appsCard: {
     marginTop: 22,
@@ -674,20 +588,25 @@ const styles = StyleSheet.create({
     padding: 18,
     borderWidth: 1,
     borderColor: colors.borderSoft,
+    ...shadow.card,
   },
   appsHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  appsTitle: { fontFamily: fonts.display, fontSize: 16, color: colors.ink },
-  activePill: { backgroundColor: colors.accent, paddingVertical: 3, paddingHorizontal: 9, borderRadius: radius.pill },
-  activePillText: { fontFamily: fonts.bodyBold, fontSize: 12, color: "#fff" },
+  appsTitle: { fontFamily: fonts.display, fontSize: 16, color: colors.ink, marginTop: 2 },
+  activePill: {
+    borderWidth: 1.4,
+    borderColor: colors.accent,
+    paddingVertical: 3,
+    paddingHorizontal: 9,
+    borderRadius: 6,
+    transform: [{ rotate: "2deg" }],
+  },
+  activePillText: { fontFamily: fonts.monoBold, fontSize: 10, letterSpacing: 1, color: colors.accent },
   appsList: { marginTop: 16, gap: 16 },
   appRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  appRowLeft: { flexDirection: "row", alignItems: "center", gap: 9 },
-  appBadge: { width: 26, height: 26, borderRadius: 8, alignItems: "center", justifyContent: "center" },
-  appBadgeText: { fontFamily: fonts.display, fontSize: 12, color: "#fff" },
+  appRowLeft: { flexDirection: "row", alignItems: "baseline", gap: 9 },
+  appLeg: { fontFamily: fonts.monoBold, fontSize: 10, letterSpacing: 1, color: colors.accent },
   appLabel: { fontFamily: fonts.bodyBold, fontSize: 13.5, color: colors.ink },
-  appSteps: { fontFamily: fonts.bodySemi, fontSize: 12, color: colors.textFaint },
-  track: { height: 7, borderRadius: radius.pill, backgroundColor: "#F1E7DA", marginTop: 9, overflow: "hidden" },
-  trackFill: { height: "100%", borderRadius: radius.pill },
+  appSteps: { fontFamily: fonts.mono, fontSize: 10.5, letterSpacing: 0.6, color: colors.textFaint },
 
   nextCard: {
     marginTop: 14,
@@ -702,8 +621,8 @@ const styles = StyleSheet.create({
     gap: 13,
   },
   nextIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: "#F49A1A", alignItems: "center", justifyContent: "center" },
-  nextCaption: { fontFamily: fonts.bodyBold, fontSize: 11, color: colors.warningInkSoft, letterSpacing: 0.4 },
-  nextTitle: { fontFamily: fonts.bodyBold, fontSize: 14, color: colors.warningInk, marginTop: 2 },
+  nextCaption: { fontFamily: fonts.monoBold, fontSize: 9.5, color: colors.warningInkSoft, letterSpacing: 1 },
+  nextTitle: { fontFamily: fonts.bodyBold, fontSize: 14, color: colors.warningInk, marginTop: 3 },
 
   grid: { flexDirection: "row", flexWrap: "wrap", gap: 12, marginTop: 14 },
   gridCell: {
@@ -718,16 +637,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 12,
   },
-  gridIcon: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  gridIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: "#F6EFE6",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   gridTitle: { fontFamily: fonts.bodyBold, fontSize: 14, color: colors.ink },
   gridSub: { fontFamily: fonts.bodyRegular, fontSize: 11, color: colors.textFaint },
-
-  tabBarWrap: {
-    backgroundColor: "rgba(251,246,239,0.96)",
-    borderTopWidth: 1,
-    borderTopColor: "#EBDDCB",
-  },
-  tabBar: { flexDirection: "row", justifyContent: "space-around", alignItems: "flex-start", paddingTop: 11, paddingHorizontal: 8 },
-  tab: { alignItems: "center", gap: 4, minWidth: 56, paddingVertical: 2 },
-  tabLabel: { fontSize: 10.5 },
+  soonTag: { fontFamily: fonts.mono, fontSize: 8, letterSpacing: 1, color: colors.textFaintest },
 });

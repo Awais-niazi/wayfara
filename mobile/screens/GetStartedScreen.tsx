@@ -1,7 +1,7 @@
 /**
  * 02 — GET STARTED (onboarding wizard)
  * Form-first onboarding, per the product decision: no register wall. Step 1
- * signs the user up with Supabase (email + username + password); the final step
+ * signs the user up with Supabase (email + name + password); the final step
  * stores the profile via POST /api/v1/onboarding/ and kicks off matching.
  * When Supabase requires email confirmation, the 6-digit code is verified on
  * the next screen, which then finishes the onboarding call.
@@ -29,6 +29,7 @@ import { colors, fonts } from "../theme";
 import { PrimaryButton, Wordmark } from "../components/ui";
 import { Field, ChoiceRow, FormError } from "../components/form";
 import { ChevronLeftIcon } from "../components/icons";
+import { RouteLine } from "../components/travel";
 import {
   firstErrorMessage,
   submitOnboarding,
@@ -259,17 +260,12 @@ export default function GetStartedScreen({ navigation }: Props) {
           </Pressable>
         )}
 
-        {/* Progress */}
+        {/* Progress — the journey starts here: the plane advances a leg per step */}
         <View style={styles.stepperRow}>
-          {STEPS.map((s, i) => (
-            <View
-              key={s.key}
-              style={[styles.segment, i <= step ? styles.segmentOn : styles.segmentOff]}
-            />
-          ))}
+          <RouteLine from="YOU" to="FIN" progress={step / (TOTAL - 1)} />
         </View>
         <Text style={styles.stepMeta}>
-          Step {step + 1} of {TOTAL}
+          STEP {String(step + 1).padStart(2, "0")} / {String(TOTAL).padStart(2, "0")}
         </Text>
 
         <View style={styles.titleBlock}>
@@ -461,16 +457,13 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
-  stepperRow: { flexDirection: "row", gap: 7, marginTop: 22 },
-  segment: { flex: 1, height: 6, borderRadius: 3 },
-  segmentOn: { backgroundColor: colors.accent },
-  segmentOff: { backgroundColor: "#EEE2D2" },
+  stepperRow: { marginTop: 22 },
   stepMeta: {
     marginTop: 10,
-    fontFamily: fonts.bodySemi,
-    fontSize: 12.5,
+    fontFamily: fonts.mono,
+    fontSize: 10,
     color: colors.textFaint,
-    letterSpacing: 0.2,
+    letterSpacing: 1.2,
   },
 
   titleBlock: { marginTop: 14 },

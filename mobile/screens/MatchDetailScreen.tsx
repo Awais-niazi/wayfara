@@ -20,8 +20,9 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 
-import { colors, fonts, radius } from "../theme";
+import { colors, fonts, radius, shadow } from "../theme";
 import { ChevronLeftIcon, ChevronRightIcon, CheckIcon, GlobeIcon } from "../components/icons";
+import { CodeBadge, Stamp, cityCode, uniCode } from "../components/travel";
 import {
   createApplication,
   firstErrorMessage,
@@ -34,13 +35,14 @@ import type { RootStackParamList } from "../navigation/types";
 
 type Props = NativeStackScreenProps<RootStackParamList, "MatchDetail">;
 
-// Same rotation Home uses, so the hero tint follows the card the user tapped.
-const HERO_TINTS = ["#EAD9C0", "#E4D2E8", "#E2DFC6", "#D8E8DC", "#D9E4F2"];
+// One warm sand hero for every university — the destination code carries the
+// identity now, not a rotating tint.
+const HERO_TINT = "#EFE0CC";
 
 const FIT_LABELS: Record<string, { label: string; ink: string; bg: string }> = {
   safety: { label: "Safety pick", ink: colors.success, bg: "#E8F4EC" },
-  good_fit: { label: "Good fit", ink: "#2A6FDB", bg: "#E9F1FB" },
-  reach: { label: "Reach", ink: "#C7502F", bg: "#FBEEE7" },
+  good_fit: { label: "Good fit", ink: colors.accent, bg: colors.accentSoft },
+  reach: { label: "Reach", ink: "#B4841A", bg: "#FDF3DF" },
 };
 
 const euro = (v: string | null) =>
@@ -83,7 +85,6 @@ function ProgramRow({ program, tint, last }: { program: CatalogProgram; tint: st
 
 export default function MatchDetailScreen({ navigation, route }: Props) {
   const { match } = route.params;
-  const tint = HERO_TINTS[match.id % HERO_TINTS.length];
   const fit = FIT_LABELS[match.fit] ?? FIT_LABELS.good_fit;
   const pct = Math.round(parseFloat(match.score));
 
@@ -148,8 +149,11 @@ export default function MatchDetailScreen({ navigation, route }: Props) {
   return (
     <View style={styles.root}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollBody}>
-        {/* hero */}
-        <View style={[styles.hero, { backgroundColor: tint }]}>
+        {/* hero — destination header */}
+        <View style={[styles.hero, { backgroundColor: HERO_TINT }]}>
+          <Text style={styles.heroWatermark} numberOfLines={1}>
+            {cityCode(match.city)}
+          </Text>
           <SafeAreaView edges={["top"]}>
             <View style={styles.heroBar}>
               <Pressable
@@ -161,18 +165,16 @@ export default function MatchDetailScreen({ navigation, route }: Props) {
               >
                 <ChevronLeftIcon size={20} />
               </Pressable>
-              <View style={styles.matchBadge}>
-                <Text style={styles.matchText}>{pct}% match</Text>
-              </View>
+              <Stamp label={`${pct}% match`} ink={colors.success} tilt={2} style={{ backgroundColor: "rgba(255,255,255,0.85)" }} />
             </View>
           </SafeAreaView>
-          <View style={[styles.heroAvatar, { backgroundColor: colors.accent }]}>
-            <Text style={styles.heroAvatarText}>{match.university.charAt(0)}</Text>
-          </View>
         </View>
 
         <View style={styles.pad}>
-          {/* identity */}
+          {/* identity — the code badge straddles the hero edge */}
+          <View style={styles.heroBadge}>
+            <CodeBadge code={uniCode(match.university)} size={56} ink={colors.accent} bg="#fff" />
+          </View>
           <Text style={styles.uniName}>{match.university}</Text>
           <Text style={styles.uniMeta}>
             {match.city}
@@ -260,7 +262,7 @@ export default function MatchDetailScreen({ navigation, route }: Props) {
               </Text>
               <View style={styles.programList}>
                 {otherPrograms.map((p, i) => (
-                  <ProgramRow key={p.id} program={p} tint={tint} last={i === otherPrograms.length - 1} />
+                  <ProgramRow key={p.id} program={p} tint={colors.accent} last={i === otherPrograms.length - 1} />
                 ))}
               </View>
             </>
@@ -322,7 +324,17 @@ const styles = StyleSheet.create({
   pad: { paddingHorizontal: 20 },
   pressed: { opacity: 0.7 },
 
-  hero: { paddingBottom: 34 },
+  hero: { paddingBottom: 34, overflow: "hidden" },
+  // The destination code as a giant printed watermark behind the hero bar.
+  heroWatermark: {
+    position: "absolute",
+    right: -8,
+    bottom: -26,
+    fontFamily: fonts.monoBold,
+    fontSize: 110,
+    letterSpacing: 4,
+    color: "rgba(255,255,255,0.5)",
+  },
   heroBar: {
     flexDirection: "row",
     alignItems: "center",
@@ -339,28 +351,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  matchBadge: {
-    backgroundColor: "rgba(255,255,255,0.92)",
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: radius.pill,
-  },
-  matchText: { fontFamily: fonts.display, fontSize: 13, color: colors.success },
-  heroAvatar: {
-    position: "absolute",
-    bottom: -24,
-    left: 20,
-    width: 56,
-    height: 56,
-    borderRadius: 16,
-    borderWidth: 3,
-    borderColor: "#fff",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  heroAvatarText: { fontFamily: fonts.display, fontSize: 24, color: "#fff" },
+  heroBadge: { marginTop: -28, alignSelf: "flex-start", borderRadius: 17, ...shadow.card },
 
-  uniName: { fontFamily: fonts.display, fontSize: 24, letterSpacing: -0.6, color: colors.ink, marginTop: 36 },
+  uniName: { fontFamily: fonts.display, fontSize: 24, letterSpacing: -0.6, color: colors.ink, marginTop: 12 },
   uniMeta: { fontFamily: fonts.bodyRegular, fontSize: 13.5, color: colors.textFaint, marginTop: 3 },
 
   chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 14 },
@@ -393,13 +386,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.borderSoft,
     padding: 18,
+    ...shadow.card,
   },
-  cardCaption: { fontFamily: fonts.bodyBold, fontSize: 10.5, letterSpacing: 0.6, color: colors.textFaintest },
+  cardCaption: { fontFamily: fonts.mono, fontSize: 9, letterSpacing: 1.6, color: colors.textFaintest },
   programTitle: { fontFamily: fonts.display, fontSize: 17, color: colors.ink, marginTop: 6 },
   statsGrid: { flexDirection: "row", flexWrap: "wrap", marginTop: 8 },
   stat: { width: "33.33%", marginTop: 12 },
-  statLabel: { fontFamily: fonts.bodySemi, fontSize: 10.5, color: colors.textFaintest },
-  statValue: { fontFamily: fonts.display, fontSize: 14.5, color: colors.ink, marginTop: 1 },
+  statLabel: { fontFamily: fonts.mono, fontSize: 8.5, letterSpacing: 1.1, color: colors.textFaintest },
+  statValue: { fontFamily: fonts.monoBold, fontSize: 13.5, color: colors.ink, marginTop: 2 },
   scholarshipNote: {
     flexDirection: "row",
     alignItems: "center",
@@ -436,6 +430,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.borderSoft,
     paddingHorizontal: 16,
+    ...shadow.card,
   },
   programRow: {
     flexDirection: "row",
@@ -477,6 +472,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
+    ...shadow.accent,
   },
   ctaBtnText: { fontFamily: fonts.displaySemi, fontSize: 14.5, color: "#fff" },
 });

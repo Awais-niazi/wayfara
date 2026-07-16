@@ -61,12 +61,44 @@ export const fonts = {
   bodyRegular: "Manrope_400Regular",
   bodySemi: "Manrope_600SemiBold",
   bodyBold: "Manrope_700Bold",
+  // Space Mono — the travel-document voice: ticket fields, uni codes,
+  // deadlines, stamps. Tabular by nature, so numbers never jitter.
+  mono: "SpaceMono_400Regular",
+  monoBold: "SpaceMono_700Bold",
   // Dashboard greeting (product decision, July 2026): Times New Roman heading
   // + Zapfino quote. Both are real system fonts on iOS only; elsewhere we ship
   // the standard stand-ins loaded in App.tsx — Tinos (metric-identical to
   // Times New Roman) and Great Vibes (Zapfino-style calligraphy).
   welcomeSerif: Platform.OS === "ios" ? "Times New Roman" : "Tinos_400Regular",
   welcomeScript: Platform.OS === "ios" ? "Zapfino" : "GreatVibes_400Regular",
+} as const;
+
+// ─── Elevation (one scale — pick from here, never ad-hoc shadows) ────────────
+export const shadow = {
+  /** Resting cards: barely-there lift off the cream canvas. */
+  card: {
+    shadowColor: "#5A3719",
+    shadowOpacity: 0.08,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 2,
+  },
+  /** Floating chrome (tab dock, sticky CTAs) and hero cards. */
+  raised: {
+    shadowColor: "#5A3719",
+    shadowOpacity: 0.16,
+    shadowRadius: 22,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 6,
+  },
+  /** The primary button's coral glow. */
+  accent: {
+    shadowColor: "#F8593C",
+    shadowOpacity: 0.35,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 6,
+  },
 } as const;
 
 export const radius = {
@@ -82,6 +114,8 @@ export const radius = {
 
 export const spacing = {
   screenX: 24,
+  /** Bottom padding for tab screens so content scrolls clear of the floating dock. */
+  tabClearance: 110,
 } as const;
 
 /** Resolve the accent hex for a named theme (falls back to coral). */

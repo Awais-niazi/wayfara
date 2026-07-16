@@ -7,8 +7,9 @@ import React from "react";
 import { Pressable, Text, View, StyleSheet, ViewStyle, TextStyle } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 
-import { colors, fonts, radius } from "../theme";
+import { colors, fonts, radius, shadow } from "../theme";
 import { WayfaraPin } from "./icons";
+import { PressableScale } from "./motion";
 
 /**
  * The Wayfara logo lockup: the Pin Waypoint mark inside a coral-gradient
@@ -50,12 +51,9 @@ export function PrimaryButton({
   style?: ViewStyle;
 }) {
   return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [styles.primaryBtn, pressed && styles.pressed, style]}
-    >
+    <PressableScale onPress={onPress} style={[styles.primaryBtn, style]}>
       <Text style={styles.primaryLabel}>{label}</Text>
-    </Pressable>
+    </PressableScale>
   );
 }
 
@@ -102,11 +100,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.accent,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: colors.accent,
-    shadowOpacity: 0.5,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 12 },
-    elevation: 6,
+    ...shadow.accent,
   },
   primaryLabel: {
     fontFamily: fonts.displaySemi,

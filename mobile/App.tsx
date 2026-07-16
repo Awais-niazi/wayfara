@@ -19,6 +19,8 @@ import {
 // to Times New Roman; Great Vibes is the Zapfino-style calligraphic script.
 import { Tinos_400Regular } from "@expo-google-fonts/tinos";
 import { GreatVibes_400Regular } from "@expo-google-fonts/great-vibes";
+// Space Mono — the travel-document voice (tickets, stamps, codes, deadlines).
+import { SpaceMono_400Regular, SpaceMono_700Bold } from "@expo-google-fonts/space-mono";
 
 import "./global.css";
 import { colors } from "./theme";
@@ -28,12 +30,9 @@ import WelcomeScreen from "./screens/WelcomeScreen";
 import GetStartedScreen from "./screens/GetStartedScreen";
 import LoginScreen from "./screens/LoginScreen";
 import VerifyOtpScreen from "./screens/VerifyOtpScreen";
-import HomeScreen from "./screens/HomeScreen";
+import MainTabs from "./navigation/MainTabs";
 import MatchDetailScreen from "./screens/MatchDetailScreen";
-import MatchesScreen from "./screens/MatchesScreen";
-import ProfileScreen from "./screens/ProfileScreen";
 import NotificationsScreen from "./screens/NotificationsScreen";
-import ApplicationsScreen from "./screens/ApplicationsScreen";
 import ApplicationDetailScreen from "./screens/ApplicationDetailScreen";
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -55,13 +54,11 @@ function RootNavigator() {
     >
       {status === "signedIn" ? (
         <>
-          <Stack.Screen name="Home" component={HomeScreen} />
+          {/* Persistent tab dock; detail screens slide in over it. */}
+          <Stack.Screen name="MainTabs" component={MainTabs} />
           <Stack.Screen name="MatchDetail" component={MatchDetailScreen} />
-          <Stack.Screen name="Matches" component={MatchesScreen} />
-          <Stack.Screen name="Profile" component={ProfileScreen} />
-          <Stack.Screen name="Notifications" component={NotificationsScreen} />
-          <Stack.Screen name="Applications" component={ApplicationsScreen} />
           <Stack.Screen name="ApplicationDetail" component={ApplicationDetailScreen} />
+          <Stack.Screen name="Notifications" component={NotificationsScreen} />
         </>
       ) : (
         <>
@@ -88,6 +85,8 @@ export default function App() {
     SpaceGrotesk_700Bold,
     Tinos_400Regular,
     GreatVibes_400Regular,
+    SpaceMono_400Regular,
+    SpaceMono_700Bold,
   });
 
   // Hold render until fonts are ready — the design leans heavily on

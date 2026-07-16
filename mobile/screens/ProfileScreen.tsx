@@ -14,15 +14,18 @@ import {
   Pressable,
   ActivityIndicator,
   Alert,
+  Platform,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
-import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 
-import { colors, fonts, radius } from "../theme";
+import { colors, fonts, radius, shadow, spacing } from "../theme";
 import { PrimaryButton } from "../components/ui";
 import { Field, ChoiceRow, FormError } from "../components/form";
-import { ChevronLeftIcon, CheckIcon } from "../components/icons";
+import { CheckIcon } from "../components/icons";
+import { TicketDivider, TicketField } from "../components/travel";
+import { FadeInUp } from "../components/motion";
+
 import {
   firstErrorMessage,
   getProfile,
@@ -51,9 +54,17 @@ import {
   testScoreError,
 } from "../lib/profileOptions";
 import { useAuth } from "../context/AuthContext";
-import type { RootStackParamList } from "../navigation/types";
+import type { TabScreenProps } from "../navigation/types";
 
-type Props = NativeStackScreenProps<RootStackParamList, "Profile">;
+type Props = TabScreenProps<"Profile">;
+
+/** Passport MRZ-style line: pure theatre, but it sells the ID page. */
+function mrzLine(first: string, last: string): string {
+  const clean = (s: string) => s.toUpperCase().replace(/[^A-Z]/g, "");
+  return `P<PAK${clean(last) || "WAYFARER"}<<${clean(first) || "STUDENT"}`
+    .padEnd(30, "<")
+    .slice(0, 30);
+}
 
 /** Editable slice of the profile, all as form-friendly strings/enums. */
 interface FormState {
@@ -122,7 +133,7 @@ function diff(form: FormState, base: FormState): Partial<Profile> {
   return patch;
 }
 
-export default function ProfileScreen({ navigation }: Props) {
+export default function ProfileScreen(_props: Props) {
   const { signOut } = useAuth();
 
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -180,11 +191,20 @@ export default function ProfileScreen({ navigation }: Props) {
     }
   };
 
-  const onSignOut = () =>
+  const onSignOut = () => {
+    // RN-web's Alert is a no-op — confirm() is the web equivalent.
+    if (Platform.OS === "web") {
+      // eslint-disable-next-line no-alert
+      if (window.confirm("Sign out?\n\nYou can sign back in with your email and password anytime.")) {
+        signOut();
+      }
+      return;
+    }
     Alert.alert("Sign out?", "You can sign back in with your email and password anytime.", [
       { text: "Cancel", style: "cancel" },
       { text: "Sign out", style: "destructive", onPress: signOut },
     ]);
+  };
 
   const displayName =
     profile && (profile.first_name || profile.last_name)
@@ -193,18 +213,12 @@ export default function ProfileScreen({ navigation }: Props) {
 
   return (
     <SafeAreaView edges={["top"]} style={styles.root}>
-      <View style={styles.topBar}>
-        <Pressable
-          onPress={navigation.goBack}
-          accessibilityRole="button"
-          accessibilityLabel="Go back"
-          hitSlop={8}
-          style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.7 }]}
-        >
-          <ChevronLeftIcon size={20} />
-        </Pressable>
-        <Text style={styles.title}>Your profile</Text>
-      </View>
+      <FadeInUp>
+        <View style={styles.topBar}>
+          <Text style={styles.overline}>TRAVELLER ID</Text>
+          <Text style={styles.title}>Your profile</Text>
+        </View>
+      </FadeInUp>
 
       {loading && (
         <View style={styles.loadingBox}>
@@ -229,25 +243,41 @@ export default function ProfileScreen({ navigation }: Props) {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          {/* identity card — email is the account key, not editable */}
-          <View style={styles.identityCard}>
-            <LinearGradient colors={["#FFB43A", colors.accent]} style={styles.avatar}>
-              <Text style={styles.avatarText}>
-                {(displayName || "W").charAt(0).toUpperCase()}
+          {/* passport ID page — email is the account key, not editable */}
+          <FadeInUp delay={60}>
+            <View style={styles.identityCard}>
+              <View style={styles.passportHead}>
+                <Text style={styles.passportHeadText}>WAYFARA · TRAVELLER ID</Text>
+                <View style={styles.tierChip}>
+                  <Text style={styles.tierChipText}>
+                    {profile.tier.toUpperCase()}
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.identityRow}>
+                <LinearGradient colors={["#FFB43A", colors.accent]} style={styles.avatar}>
+                  <Text style={styles.avatarText}>
+                    {(displayName || "W").charAt(0).toUpperCase()}
+                  </Text>
+                </LinearGradient>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.identityName} numberOfLines={1}>
+                    {displayName || "Add your name"}
+                  </Text>
+                  <Text style={styles.identityEmail} numberOfLines={1}>{profile.email}</Text>
+                </View>
+              </View>
+              <View style={styles.identityFields}>
+                <TicketField label="Nationality" value={profile.nationality || "—"} />
+                <TicketField label="Home city" value={profile.home_city || "—"} />
+                <TicketField label="Destination" value="FINLAND" align="right" valueColor={colors.accent} />
+              </View>
+              <TicketDivider inset={16} />
+              <Text style={styles.mrz} numberOfLines={1}>
+                {mrzLine(profile.first_name, profile.last_name)}
               </Text>
-            </LinearGradient>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.identityName} numberOfLines={1}>
-                {displayName || "Add your name"}
-              </Text>
-              <Text style={styles.identityEmail} numberOfLines={1}>{profile.email}</Text>
             </View>
-            <View style={styles.tierChip}>
-              <Text style={styles.tierChipText}>
-                {profile.tier.charAt(0).toUpperCase() + profile.tier.slice(1)}
-              </Text>
-            </View>
-          </View>
+          </FadeInUp>
 
           <Text style={styles.sectionTitle}>About you</Text>
           <View style={styles.fields}>
@@ -416,25 +446,9 @@ export default function ProfileScreen({ navigation }: Props) {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.canvas },
 
-  topBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 6,
-  },
-  backBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: "#fff",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  title: { fontFamily: fonts.display, fontSize: 20, letterSpacing: -0.4, color: colors.ink },
+  topBar: { paddingHorizontal: 20, paddingTop: 14, paddingBottom: 6 },
+  overline: { fontFamily: fonts.mono, fontSize: 9.5, letterSpacing: 1.6, color: colors.textFaintest },
+  title: { fontFamily: fonts.display, fontSize: 24, letterSpacing: -0.5, color: colors.ink, marginTop: 4 },
 
   loadingBox: { paddingVertical: 80, alignItems: "center" },
   errorBox: {
@@ -451,30 +465,38 @@ const styles = StyleSheet.create({
   errorText: { fontFamily: fonts.bodySemi, fontSize: 13.5, color: "#B3402A", textAlign: "center" },
   errorRetry: { fontFamily: fonts.bodyBold, fontSize: 13, color: colors.accent },
 
-  body: { paddingHorizontal: 20, paddingBottom: 32, gap: 0 },
+  body: { paddingHorizontal: 20, paddingBottom: spacing.tabClearance, gap: 0 },
 
   identityCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 13,
     backgroundColor: "#fff",
     borderWidth: 1,
     borderColor: colors.borderSoft,
     borderRadius: radius["2xl"],
-    padding: 16,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 12,
     marginTop: 8,
+    overflow: "hidden",
+    ...shadow.card,
   },
+  passportHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  passportHeadText: { fontFamily: fonts.mono, fontSize: 9, letterSpacing: 1.6, color: colors.textFaintest },
+  identityRow: { flexDirection: "row", alignItems: "center", gap: 13, marginTop: 12 },
   avatar: { width: 50, height: 50, borderRadius: 15, alignItems: "center", justifyContent: "center" },
   avatarText: { fontFamily: fonts.display, fontSize: 20, color: "#fff" },
   identityName: { fontFamily: fonts.bodyBold, fontSize: 15.5, color: colors.ink },
   identityEmail: { fontFamily: fonts.bodyRegular, fontSize: 12.5, color: colors.textFaint, marginTop: 1 },
+  identityFields: { flexDirection: "row", justifyContent: "space-between", marginTop: 14, marginBottom: 2 },
+  mrz: { fontFamily: fonts.mono, fontSize: 11, letterSpacing: 2, color: "#C4B29B", marginTop: 2 },
   tierChip: {
-    backgroundColor: colors.accentSoft,
-    paddingVertical: 5,
-    paddingHorizontal: 11,
-    borderRadius: radius.pill,
+    borderWidth: 1.4,
+    borderColor: colors.accent,
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    transform: [{ rotate: "2deg" }],
   },
-  tierChipText: { fontFamily: fonts.bodyBold, fontSize: 11.5, color: colors.accent },
+  tierChipText: { fontFamily: fonts.monoBold, fontSize: 9.5, letterSpacing: 1, color: colors.accent },
 
   sectionTitle: { fontFamily: fonts.display, fontSize: 18, letterSpacing: -0.3, color: colors.ink, marginTop: 26 },
   sectionSub: { fontFamily: fonts.bodyRegular, fontSize: 12.5, color: colors.textFaint, marginTop: 2 },

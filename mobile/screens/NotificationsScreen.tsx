@@ -18,8 +18,9 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 
-import { colors, fonts, radius } from "../theme";
+import { colors, fonts, radius, shadow } from "../theme";
 import { ChevronLeftIcon, BellIcon } from "../components/icons";
+import { FadeInUp } from "../components/motion";
 import {
   getNotifications,
   markNotificationsRead,
@@ -30,16 +31,17 @@ import type { RootStackParamList } from "../navigation/types";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Notifications">;
 
-// Visual identity per category: chip label + accent.
+// Visual identity per category: label + ink, all drawn from the warm palette
+// (semantic greens/ambers stay; no off-brand purples/blues).
 const CATEGORY_META: Record<NotificationCategory, { label: string; color: string }> = {
   reminder: { label: "Reminder", color: "#B4841A" },
-  advisor: { label: "Advisor", color: "#7B4FD6" },
-  news: { label: "News", color: "#2A6FDB" },
+  advisor: { label: "Advisor", color: "#C7502F" },
+  news: { label: "News", color: "#6F5F50" },
   update: { label: "Update", color: "#C7502F" },
   system: { label: "Wayfara", color: colors.accent },
   document: { label: "Documents", color: "#1F8A5B" },
   application: { label: "Application", color: "#1F8A5B" },
-  visa: { label: "Visa", color: "#F8593C" },
+  visa: { label: "Visa", color: colors.accent },
 };
 
 function timeAgo(iso: string): string {
@@ -103,13 +105,14 @@ export default function NotificationsScreen({ navigation }: Props) {
     }
   };
 
-  const renderItem = ({ item }: { item: AppNotification }) => {
+  const renderItem = ({ item, index }: { item: AppNotification; index: number }) => {
     const meta = CATEGORY_META[item.category] ?? CATEGORY_META.system;
     const unread = item.read_at === null;
     return (
+      <FadeInUp delay={Math.min(index, 8) * 40}>
       <View style={[styles.card, unread && styles.cardUnread]}>
-        <View style={[styles.catBadge, { backgroundColor: meta.color }]}>
-          <BellIcon size={15} color="#fff" />
+        <View style={[styles.catBadge, { borderColor: meta.color }]}>
+          <BellIcon size={15} color={meta.color} />
         </View>
         <View style={{ flex: 1 }}>
           <View style={styles.cardHead}>
@@ -125,6 +128,7 @@ export default function NotificationsScreen({ navigation }: Props) {
         </View>
         {unread && <View style={styles.unreadDot} />}
       </View>
+      </FadeInUp>
     );
   };
 
@@ -231,7 +235,7 @@ const styles = StyleSheet.create({
   errorText: { fontFamily: fonts.bodySemi, fontSize: 13.5, color: "#B3402A" },
   errorRetry: { fontFamily: fonts.bodyBold, fontSize: 13, color: colors.accent },
 
-  list: { padding: 16, gap: 10, flexGrow: 1 },
+  list: { padding: 16, gap: 10, flexGrow: 1, paddingBottom: 32 },
   card: {
     flexDirection: "row",
     gap: 12,
@@ -240,18 +244,20 @@ const styles = StyleSheet.create({
     borderColor: colors.borderSoft,
     borderRadius: radius.xl,
     padding: 14,
+    ...shadow.card,
   },
   cardUnread: { borderColor: "#F3D3B8", backgroundColor: "#FFFBF5" },
   catBadge: {
     width: 34,
     height: 34,
     borderRadius: 11,
+    borderWidth: 1.4,
     alignItems: "center",
     justifyContent: "center",
   },
   cardHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  catLabel: { fontFamily: fonts.bodyBold, fontSize: 11, letterSpacing: 0.4, textTransform: "uppercase" },
-  time: { fontFamily: fonts.bodySemi, fontSize: 11.5, color: colors.textFaintest },
+  catLabel: { fontFamily: fonts.monoBold, fontSize: 9.5, letterSpacing: 1.2, textTransform: "uppercase" },
+  time: { fontFamily: fonts.mono, fontSize: 10, letterSpacing: 0.4, color: colors.textFaintest },
   title: { fontFamily: fonts.bodyBold, fontSize: 14, color: colors.ink, marginTop: 3 },
   body: { fontFamily: fonts.bodyRegular, fontSize: 12.5, color: colors.textFaint, marginTop: 2, lineHeight: 17 },
   unreadDot: {

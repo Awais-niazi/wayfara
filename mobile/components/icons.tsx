@@ -123,6 +123,18 @@ export function PlaneIcon({ size = 21, color = "#2A6FDB" }: IconProps) {
   );
 }
 
+/** Right-facing plane for route lines — nose pointing toward the destination. */
+export function PlaneSideIcon({ size = 16, color = "#F8593C" }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <Path
+        d="M8 21 L11.2 13.4 L17.6 13.4 A1.4 1.4 0 0 0 17.6 10.6 L11.2 10.6 L8 3 L6.4 3 L8.6 10.6 L5 10.6 L3.5 8.4 L2.4 8.4 L3.4 12 L2.4 15.6 L3.5 15.6 L5 13.4 L8.6 13.4 L6.4 21 Z"
+        fill={color}
+      />
+    </Svg>
+  );
+}
+
 export function HousingIcon({ size = 21, color = "#1F8A5B", strokeWidth = 1.9 }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">

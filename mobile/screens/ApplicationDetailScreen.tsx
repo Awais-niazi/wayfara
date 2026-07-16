@@ -23,8 +23,9 @@ import { useFocusEffect } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import * as DocumentPicker from "expo-document-picker";
 
-import { colors, fonts, radius } from "../theme";
+import { colors, fonts, radius, shadow } from "../theme";
 import { ChevronLeftIcon, CheckIcon, GlobeIcon, UploadIcon } from "../components/icons";
+import { Stamp } from "../components/travel";
 import {
   documentDownloadUrl,
   firstErrorMessage,
@@ -54,7 +55,7 @@ const LADDER: ApplicationStatus[] = [
 const NEXT_LABEL: Record<string, string> = {
   shortlisted: "Start preparing",
   in_progress: "Mark as submitted on Studyinfo",
-  submitted: "I received an offer 🎉",
+  submitted: "I received an offer",
   offer_received: "I confirmed my study place",
 };
 
@@ -237,17 +238,15 @@ export default function ApplicationDetailScreen({ navigation, route }: Props) {
           <Text style={styles.title} numberOfLines={1}>{app.university}</Text>
           <Text style={styles.subtitle} numberOfLines={1}>{app.program_name}</Text>
         </View>
-        <View style={[styles.statusChip, { backgroundColor: meta.bg }]}>
-          <Text style={[styles.statusChipText, { color: meta.ink }]}>{meta.label}</Text>
-        </View>
+        <Stamp label={meta.label} ink={meta.ink} tilt={2} />
       </View>
 
       <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
         {/* deadline banner */}
         {app.application_deadline !== null && (
           <View style={styles.deadlineBanner}>
+            <Text style={styles.deadlineCaption}>DEADLINE</Text>
             <Text style={styles.deadlineText}>
-              Application deadline:{" "}
               {new Date(app.application_deadline).toLocaleDateString("en-GB", {
                 day: "numeric",
                 month: "long",
@@ -259,6 +258,7 @@ export default function ApplicationDetailScreen({ navigation, route }: Props) {
 
         {/* stepper */}
         <View style={styles.stepperCard}>
+          <Text style={styles.overline}>ITINERARY</Text>
           {LADDER.map((step, i) => {
             const stepMeta = STATUS_META[step];
             const reached = ladderIndex >= i;
@@ -271,7 +271,7 @@ export default function ApplicationDetailScreen({ navigation, route }: Props) {
                   <View style={[styles.stepLine, ladderIndex > i && styles.stepLineOn]} />
                 )}
                 <Text style={[styles.stepLabel, reached && styles.stepLabelOn]}>
-                  {stepMeta.label.replace(" 🎉", "").replace(" 🇫🇮", "")}
+                  {stepMeta.label}
                 </Text>
               </View>
             );
@@ -308,6 +308,7 @@ export default function ApplicationDetailScreen({ navigation, route }: Props) {
 
         {/* Studyinfo hand-off */}
         <View style={styles.sectionCard}>
+          <Text style={styles.overline}>GATE</Text>
           <Text style={styles.sectionTitle}>Submit on Studyinfo.fi</Text>
           <Text style={styles.sectionSub}>
             Finnish applications are submitted on the official portal — Wayfara
@@ -333,6 +334,7 @@ export default function ApplicationDetailScreen({ navigation, route }: Props) {
 
         {/* document checklist */}
         <View style={styles.sectionCard}>
+          <Text style={styles.overline}>TRAVEL DOCUMENTS</Text>
           <Text style={styles.sectionTitle}>Documents</Text>
           <Text style={styles.sectionSub}>
             What this programme asks for. Uploads are stored securely and reused
@@ -374,6 +376,7 @@ export default function ApplicationDetailScreen({ navigation, route }: Props) {
 
         {/* motivation letter */}
         <View style={styles.sectionCard}>
+          <Text style={styles.overline}>IN YOUR OWN WORDS</Text>
           <Text style={styles.sectionTitle}>Motivation letter</Text>
           <View style={styles.tipsBox}>
             {SOP_TIPS.map((tip, i) => (
@@ -444,8 +447,7 @@ const styles = StyleSheet.create({
   },
   title: { fontFamily: fonts.display, fontSize: 17, letterSpacing: -0.3, color: colors.ink },
   subtitle: { fontFamily: fonts.bodyRegular, fontSize: 12, color: colors.textFaint },
-  statusChip: { paddingVertical: 5, paddingHorizontal: 10, borderRadius: radius.pill },
-  statusChipText: { fontFamily: fonts.bodyBold, fontSize: 11 },
+  overline: { fontFamily: fonts.mono, fontSize: 9, letterSpacing: 1.6, color: colors.textFaintest, marginBottom: 6 },
 
   centerBox: { alignItems: "center", paddingVertical: 70 },
   errorBox: {
@@ -470,7 +472,11 @@ const styles = StyleSheet.create({
     borderRadius: radius.xl,
     paddingVertical: 11,
     paddingHorizontal: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
   },
+  deadlineCaption: { fontFamily: fonts.monoBold, fontSize: 9.5, letterSpacing: 1.2, color: colors.warningInkSoft },
   deadlineText: { fontFamily: fonts.bodyBold, fontSize: 13, color: colors.warningInk },
 
   stepperCard: {
@@ -479,6 +485,7 @@ const styles = StyleSheet.create({
     borderColor: colors.borderSoft,
     borderRadius: radius["2xl"],
     padding: 16,
+    ...shadow.card,
   },
   stepRow: { flexDirection: "row", alignItems: "center", gap: 10, position: "relative", paddingVertical: 7 },
   stepDot: {
@@ -521,6 +528,7 @@ const styles = StyleSheet.create({
     borderColor: colors.borderSoft,
     borderRadius: radius["2xl"],
     padding: 16,
+    ...shadow.card,
   },
   sectionTitle: { fontFamily: fonts.display, fontSize: 16, color: colors.ink },
   sectionSub: { fontFamily: fonts.bodyRegular, fontSize: 12.5, color: colors.textFaint, marginTop: 3, lineHeight: 18 },
@@ -605,7 +613,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
   },
   sopFooter: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 10 },
-  wordCount: { fontFamily: fonts.bodySemi, fontSize: 12, color: colors.textFaintest },
+  wordCount: { fontFamily: fonts.mono, fontSize: 10.5, letterSpacing: 0.6, color: colors.textFaintest },
   sopSaveBtn: {
     height: 40,
     paddingHorizontal: 18,

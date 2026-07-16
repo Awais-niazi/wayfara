@@ -1,25 +1,32 @@
 /**
- * 05 — ALL MATCHES · THE FULL RANKED LIST
- * Opened from "See all" on Home. Receives the already-fetched matches via
- * route params (no refetch, instant render) and groups them by fit tier:
- * good fits first, then reaches, then safety picks — the order students
- * shortlist in. Each row opens the same MatchDetail screen as the Home cards.
+ * 05 — EXPLORE · THE FULL RANKED LIST
+ * The Explore tab: every matched programme, grouped by fit tier — good fits
+ * first, then reaches, then safety picks — the order students shortlist in.
+ * Fetches its own data (it's a persistent tab, reachable from anywhere);
+ * each row opens the same MatchDetail screen as the Home cards.
  */
-import React, { useMemo } from "react";
-import { View, Text, StyleSheet, SectionList, Pressable } from "react-native";
+import React, { useCallback, useState } from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  SectionList,
+  ActivityIndicator,
+  Pressable,
+  RefreshControl,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import type { NativeStackScreenProps } from "@react-navigation/native-stack";
+import { useFocusEffect } from "@react-navigation/native";
 
-import { colors, fonts, radius } from "../theme";
-import { ChevronLeftIcon, ChevronRightIcon } from "../components/icons";
-import type { Match } from "../lib/api";
-import type { RootStackParamList } from "../navigation/types";
+import { colors, fonts, radius, shadow, spacing } from "../theme";
+import { ChevronRightIcon } from "../components/icons";
+import { CodeBadge, uniCode } from "../components/travel";
+import { FadeInUp, PressableScale } from "../components/motion";
 
-type Props = NativeStackScreenProps<RootStackParamList, "Matches">;
+import { getMatches, type Match } from "../lib/api";
+import type { TabScreenProps } from "../navigation/types";
 
-// Same rotation as the Home cards, keyed by match id so a university keeps
-// its tile color between the carousel, this list, and the detail hero.
-const TILE_COLORS = [colors.accent, "#C7502F", "#F49A1A", "#1F8A5B", "#2A6FDB"];
+type Props = TabScreenProps<"Explore">;
 
 const FIT_SECTIONS: { fit: Match["fit"]; title: string; sub: string }[] = [
   { fit: "good_fit", title: "Good fits", sub: "Strong overlap with your profile" },
@@ -33,90 +40,122 @@ const euro = (v: string | null) =>
 function MatchRow({ match, onPress }: { match: Match; onPress: () => void }) {
   const pct = Math.round(parseFloat(match.score));
   return (
-    <Pressable
+    <PressableScale
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={`${match.university}, ${match.program_name}, ${pct}% match`}
-      style={({ pressed }) => [styles.row, pressed && { opacity: 0.8 }]}
+      style={styles.row}
     >
-      <View style={[styles.tile, { backgroundColor: TILE_COLORS[match.id % TILE_COLORS.length] }]}>
-        <Text style={styles.tileText}>{match.university.charAt(0)}</Text>
-      </View>
+      <CodeBadge code={uniCode(match.university)} size={44} />
       <View style={{ flex: 1 }}>
         <Text style={styles.rowName} numberOfLines={1}>{match.university}</Text>
         <Text style={styles.rowMeta} numberOfLines={1}>
           {match.program_name} · {match.city}
         </Text>
-        <Text style={styles.rowFee}>{euro(match.tuition_fee_eur)}/yr</Text>
+        <Text style={styles.rowFee}>{euro(match.tuition_fee_eur)}/YR</Text>
       </View>
       <View style={styles.rowRight}>
         <Text style={styles.rowScore}>{pct}%</Text>
         <ChevronRightIcon size={16} color={colors.textFaintest} />
       </View>
-    </Pressable>
+    </PressableScale>
   );
 }
 
-export default function MatchesScreen({ navigation, route }: Props) {
-  const { matches } = route.params;
+export default function MatchesScreen({ navigation }: Props) {
+  const [matches, setMatches] = useState<Match[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState(false);
 
-  const sections = useMemo(
-    () =>
-      FIT_SECTIONS.map((s) => ({
-        ...s,
-        data: matches.filter((m) => m.fit === s.fit),
-      })).filter((s) => s.data.length > 0),
-    [matches],
+  const load = useCallback(async (mode: "initial" | "refresh") => {
+    mode === "initial" ? setLoading(true) : setRefreshing(true);
+    try {
+      setMatches(await getMatches());
+      setError(false);
+    } catch {
+      if (mode === "initial") setError(true);
+    } finally {
+      mode === "initial" ? setLoading(false) : setRefreshing(false);
+    }
+  }, []);
+
+  // Re-fetch on focus: a profile edit re-matches in the background.
+  useFocusEffect(
+    useCallback(() => {
+      load("initial");
+    }, [load]),
   );
+
+  const sections = FIT_SECTIONS.map((s) => ({
+    ...s,
+    data: matches.filter((m) => m.fit === s.fit),
+  })).filter((s) => s.data.length > 0);
 
   return (
     <SafeAreaView edges={["top"]} style={styles.root}>
-      <View style={styles.topBar}>
-        <Pressable
-          onPress={navigation.goBack}
-          accessibilityRole="button"
-          accessibilityLabel="Go back"
-          hitSlop={8}
-          style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.7 }]}
-        >
-          <ChevronLeftIcon size={20} />
-        </Pressable>
-        <View>
+      <FadeInUp>
+        <View style={styles.topBar}>
+          <Text style={styles.overline}>ARRIVALS — RANKED BY FIT</Text>
           <Text style={styles.title}>Your matches</Text>
-          <Text style={styles.subtitle}>
-            {matches.length} programme{matches.length === 1 ? "" : "s"}, best fit first
-          </Text>
-        </View>
-      </View>
-
-      <SectionList
-        sections={sections}
-        keyExtractor={(m) => String(m.id)}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.listBody}
-        stickySectionHeadersEnabled={false}
-        renderSectionHeader={({ section }) => (
-          <View style={styles.sectionHead}>
-            <Text style={styles.sectionTitle}>{section.title}</Text>
-            <Text style={styles.sectionSub}>{section.sub}</Text>
-          </View>
-        )}
-        renderItem={({ item }) => (
-          <MatchRow
-            match={item}
-            onPress={() => navigation.navigate("MatchDetail", { match: item })}
-          />
-        )}
-        ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
-        ListEmptyComponent={
-          <View style={styles.emptyBox}>
-            <Text style={styles.emptyTitle}>No matches yet</Text>
-            <Text style={styles.emptyText}>
-              We're matching universities to your profile — check back in a minute.
+          {!loading && !error && (
+            <Text style={styles.subtitle}>
+              {matches.length} programme{matches.length === 1 ? "" : "s"}, best fit first
             </Text>
-          </View>
-        }
-      />
+          )}
+        </View>
+      </FadeInUp>
+
+      {loading && (
+        <View style={styles.centerBox}>
+          <ActivityIndicator color={colors.accent} />
+        </View>
+      )}
+
+      {error && !loading && (
+        <Pressable style={styles.errorBox} onPress={() => load("initial")}>
+          <Text style={styles.errorText}>Couldn't load your matches.</Text>
+          <Text style={styles.errorRetry}>Tap to retry</Text>
+        </Pressable>
+      )}
+
+      {!loading && !error && (
+        <SectionList
+          sections={sections}
+          keyExtractor={(m) => String(m.id)}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.listBody}
+          stickySectionHeadersEnabled={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => load("refresh")}
+              tintColor={colors.accent}
+            />
+          }
+          renderSectionHeader={({ section }) => (
+            <View style={styles.sectionHead}>
+              <Text style={styles.sectionTitle}>{section.title}</Text>
+              <Text style={styles.sectionSub}>{section.sub}</Text>
+            </View>
+          )}
+          renderItem={({ item }) => (
+            <MatchRow
+              match={item}
+              onPress={() => navigation.navigate("MatchDetail", { match: item })}
+            />
+          )}
+          ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
+          ListEmptyComponent={
+            <View style={styles.emptyBox}>
+              <Text style={styles.emptyTitle}>No matches yet</Text>
+              <Text style={styles.emptyText}>
+                We're matching universities to your profile — check back in a minute.
+              </Text>
+            </View>
+          }
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -124,28 +163,26 @@ export default function MatchesScreen({ navigation, route }: Props) {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.canvas },
 
-  topBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 6,
-  },
-  backBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: "#fff",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  title: { fontFamily: fonts.display, fontSize: 20, letterSpacing: -0.4, color: colors.ink },
-  subtitle: { fontFamily: fonts.bodySemi, fontSize: 12, color: colors.textFaint, marginTop: 1 },
+  topBar: { paddingHorizontal: 20, paddingTop: 14, paddingBottom: 4 },
+  overline: { fontFamily: fonts.mono, fontSize: 9.5, letterSpacing: 1.6, color: colors.textFaintest },
+  title: { fontFamily: fonts.display, fontSize: 24, letterSpacing: -0.5, color: colors.ink, marginTop: 4 },
+  subtitle: { fontFamily: fonts.bodyRegular, fontSize: 12.5, color: colors.textFaint, marginTop: 2 },
 
-  listBody: { paddingHorizontal: 20, paddingBottom: 28 },
+  centerBox: { alignItems: "center", paddingVertical: 70 },
+  errorBox: {
+    margin: 20,
+    backgroundColor: "#FCEBE7",
+    borderWidth: 1,
+    borderColor: "#F3C4B8",
+    borderRadius: radius["2xl"],
+    padding: 18,
+    alignItems: "center",
+    gap: 4,
+  },
+  errorText: { fontFamily: fonts.bodySemi, fontSize: 13.5, color: "#B3402A" },
+  errorRetry: { fontFamily: fonts.bodyBold, fontSize: 13, color: colors.accent },
+
+  listBody: { paddingHorizontal: 20, paddingBottom: spacing.tabClearance },
 
   sectionHead: { marginTop: 22, marginBottom: 12 },
   sectionTitle: { fontFamily: fonts.display, fontSize: 16.5, letterSpacing: -0.2, color: colors.ink },
@@ -160,20 +197,13 @@ const styles = StyleSheet.create({
     borderColor: colors.borderSoft,
     borderRadius: radius.xl,
     padding: 14,
+    ...shadow.card,
   },
-  tile: {
-    width: 46,
-    height: 46,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  tileText: { fontFamily: fonts.display, fontSize: 19, color: "#fff" },
   rowName: { fontFamily: fonts.bodyBold, fontSize: 14.5, color: colors.ink },
   rowMeta: { fontFamily: fonts.bodyRegular, fontSize: 12, color: colors.textFaint, marginTop: 1 },
-  rowFee: { fontFamily: fonts.displaySemi, fontSize: 12.5, color: colors.textMuted, marginTop: 4 },
+  rowFee: { fontFamily: fonts.mono, fontSize: 10.5, letterSpacing: 0.5, color: colors.textMuted, marginTop: 5 },
   rowRight: { alignItems: "flex-end", gap: 4 },
-  rowScore: { fontFamily: fonts.display, fontSize: 15, color: colors.success },
+  rowScore: { fontFamily: fonts.monoBold, fontSize: 14, color: colors.success },
 
   emptyBox: { alignItems: "center", paddingVertical: 70, paddingHorizontal: 30, gap: 6 },
   emptyTitle: { fontFamily: fonts.display, fontSize: 17, color: colors.ink },
