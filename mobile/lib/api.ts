@@ -315,6 +315,8 @@ export interface ApplicationDetail extends Application {
   studyinfo_url: string;
   /** University's official site — fallback when Studyinfo hasn't published the round yet. */
   university_website: string;
+  /** When the application window opens; null = not announced yet. */
+  application_opens: string | null;
 }
 
 export interface DocumentInfo {

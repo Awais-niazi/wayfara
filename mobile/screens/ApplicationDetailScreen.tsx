@@ -67,6 +67,63 @@ const SOP_TIPS = [
   "500–700 words. Admissions tutors read hundreds of these.",
 ];
 
+/**
+ * Finnish degree applications run in fixed national rounds (main round in
+ * January) — most of the year the gate is simply not open. Say so, instead of
+ * letting the student expect a live form behind the button.
+ */
+function gateWindow(app: ApplicationDetail): {
+  stamp: string;
+  ink: string;
+  copy: string;
+} {
+  const DAY = 86400000;
+  const now = Date.now();
+  const deadline = app.application_deadline ? new Date(app.application_deadline) : null;
+  const opens = app.application_opens ? new Date(app.application_opens) : null;
+  const fmt = (d: Date) =>
+    d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  const docsLeft = app.checklist.filter((c) => c.required && !c.fulfilled).length;
+  const prepNudge =
+    docsLeft > 0
+      ? ` ${docsLeft} required document${docsLeft === 1 ? "" : "s"} still to go — be ready before it opens.`
+      : " Your checklist is complete — you'll be ready on day one.";
+
+  if (deadline && deadline.getTime() < now) {
+    return {
+      stamp: "Window closed",
+      ink: colors.textFaintest,
+      copy: `This round's deadline (${fmt(deadline)}) has passed. Keep an eye on the next intake.`,
+    };
+  }
+  if (opens && opens.getTime() > now) {
+    const days = Math.ceil((opens.getTime() - now) / DAY);
+    return {
+      stamp: `Opens ${fmt(opens)}`,
+      ink: colors.warningInkSoft,
+      copy: `The application window opens in ${days} day${days === 1 ? "" : "s"}.${prepNudge}`,
+    };
+  }
+  if (opens && deadline) {
+    const days = Math.ceil((deadline.getTime() - now) / DAY);
+    return {
+      stamp: "Gate open",
+      ink: colors.success,
+      copy: `The window is open — ${days} day${days === 1 ? "" : "s"} left to submit (deadline ${fmt(deadline)}).`,
+    };
+  }
+  return {
+    stamp: "Prep season",
+    ink: colors.warningInkSoft,
+    copy:
+      `Finnish programmes take applications in fixed national rounds — most in January.` +
+      (deadline
+        ? ` This programme's deadline is ${fmt(deadline)}; the window usually opens a few weeks earlier.`
+        : "") +
+      prepNudge,
+  };
+}
+
 /** RN-web's Alert is a no-op — confirm() is the web equivalent. */
 function confirmDialog(title: string, message: string, onConfirm: () => void) {
   if (Platform.OS === "web") {
@@ -315,6 +372,15 @@ export default function ApplicationDetailScreen({ navigation, route }: Props) {
             preps everything, you press the button there. The link below takes
             you straight to your programme.
           </Text>
+          {(() => {
+            const w = gateWindow(app);
+            return (
+              <View style={styles.windowBanner}>
+                <Stamp label={w.stamp} ink={w.ink} tilt={-2} />
+                <Text style={styles.windowCopy}>{w.copy}</Text>
+              </View>
+            );
+          })()}
           <View style={styles.gateSteps}>
             {[
               "Open your programme below and sign in (create a Studyinfo account if you don't have one).",
@@ -558,6 +624,24 @@ const styles = StyleSheet.create({
   sectionTitle: { fontFamily: fonts.display, fontSize: 16, color: colors.ink },
   sectionSub: { fontFamily: fonts.bodyRegular, fontSize: 12.5, color: colors.textFaint, marginTop: 3, lineHeight: 18 },
 
+  windowBanner: {
+    marginTop: 12,
+    backgroundColor: "#FDF8F0",
+    borderWidth: 1,
+    borderColor: "#F0E4D0",
+    borderRadius: radius.lg,
+    padding: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  windowCopy: {
+    flex: 1,
+    fontFamily: fonts.bodySemi,
+    fontSize: 12.5,
+    lineHeight: 18,
+    color: "#7A6A55",
+  },
   gateSteps: { marginTop: 12, gap: 9 },
   gateStepRow: { flexDirection: "row", gap: 10, alignItems: "flex-start" },
   gateStepNum: { fontFamily: fonts.monoBold, fontSize: 11, color: colors.accent, lineHeight: 17 },

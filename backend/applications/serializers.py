@@ -141,11 +141,14 @@ class ApplicationDetailSerializer(ApplicationListSerializer):
     # Secondary escape hatch: the university's official site, for programmes
     # whose application round Studyinfo hasn't published yet.
     university_website = serializers.CharField(source="program.university.website", read_only=True)
+    # When the application window opens (null = not announced yet) — the app
+    # renders the gate as open / opens-on / prepare from this + the deadline.
+    application_opens = serializers.DateField(source="program.application_opens", read_only=True)
 
     class Meta(ApplicationListSerializer.Meta):
         fields = ApplicationListSerializer.Meta.fields + [
             "checklist", "motivation_letter", "studyinfo_reference", "notes",
-            "decision_at", "studyinfo_url", "university_website",
+            "decision_at", "studyinfo_url", "university_website", "application_opens",
         ]
         read_only_fields = fields
 

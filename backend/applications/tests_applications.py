@@ -189,6 +189,9 @@ class StudyinfoDeepLinkTests(APITestCase):
             resp.data["studyinfo_url"],
             "https://opintopolku.fi/konfo/en/koulutus/1.2.246.562.13.999",
         )
+        # The gate banner's inputs ride on the same payload.
+        self.assertIn("application_opens", resp.data)
+        self.assertIn("university_website", resp.data)
 
     def test_manual_program_falls_back_to_prefilled_search(self):
         program = Program.objects.create(
