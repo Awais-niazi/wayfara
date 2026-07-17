@@ -144,11 +144,15 @@ class ApplicationDetailSerializer(ApplicationListSerializer):
     # When the application window opens (null = not announced yet) — the app
     # renders the gate as open / opens-on / prepare from this + the deadline.
     application_opens = serializers.DateField(source="program.application_opens", read_only=True)
+    # Studies begin — lets the gate banner name WHICH start the round feeds
+    # ("for the January 2027 start"), the distinction applicants mix up most.
+    start_date = serializers.DateField(source="program.start_date", read_only=True)
 
     class Meta(ApplicationListSerializer.Meta):
         fields = ApplicationListSerializer.Meta.fields + [
             "checklist", "motivation_letter", "studyinfo_reference", "notes",
             "decision_at", "studyinfo_url", "university_website", "application_opens",
+            "start_date",
         ]
         read_only_fields = fields
 

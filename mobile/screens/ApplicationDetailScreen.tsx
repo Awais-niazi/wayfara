@@ -83,6 +83,11 @@ function gateWindow(app: ApplicationDetail): {
   const opens = app.application_opens ? new Date(app.application_opens) : null;
   const fmt = (d: Date) =>
     d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  // "for the January 2027 start" — which term the round feeds is the thing
+  // applicants mix up most (apply-in-January means START in September).
+  const startLabel = app.start_date
+    ? ` for the ${new Date(app.start_date).toLocaleDateString("en-GB", { month: "long", year: "numeric" })} start`
+    : "";
   const docsLeft = app.checklist.filter((c) => c.required && !c.fulfilled).length;
   const prepNudge =
     docsLeft > 0
@@ -101,7 +106,7 @@ function gateWindow(app: ApplicationDetail): {
     return {
       stamp: `Opens ${fmt(opens)}`,
       ink: colors.warningInkSoft,
-      copy: `The application window opens in ${days} day${days === 1 ? "" : "s"}.${prepNudge}`,
+      copy: `The application window${startLabel} opens in ${days} day${days === 1 ? "" : "s"} — you can submit from ${fmt(opens)}.${prepNudge}`,
     };
   }
   if (opens && deadline) {
@@ -109,7 +114,7 @@ function gateWindow(app: ApplicationDetail): {
     return {
       stamp: "Gate open",
       ink: colors.success,
-      copy: `The window is open — ${days} day${days === 1 ? "" : "s"} left to submit (deadline ${fmt(deadline)}).`,
+      copy: `The window${startLabel} is open — ${days} day${days === 1 ? "" : "s"} left to submit (deadline ${fmt(deadline)}).`,
     };
   }
   return {
@@ -118,7 +123,7 @@ function gateWindow(app: ApplicationDetail): {
     copy:
       `Finnish programmes take applications in fixed national rounds — most in January.` +
       (deadline
-        ? ` This programme's deadline is ${fmt(deadline)}; the window usually opens a few weeks earlier.`
+        ? ` This round${startLabel} closes ${fmt(deadline)}; the window usually opens a few weeks earlier.`
         : "") +
       prepNudge,
   };

@@ -317,6 +317,8 @@ export interface ApplicationDetail extends Application {
   university_website: string;
   /** When the application window opens; null = not announced yet. */
   application_opens: string | null;
+  /** When studies begin — names which start term the application round feeds. */
+  start_date: string | null;
 }
 
 export interface DocumentInfo {
