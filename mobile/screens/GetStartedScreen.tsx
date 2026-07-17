@@ -207,6 +207,15 @@ export default function GetStartedScreen({ navigation }: Props) {
           setError(signUpError.message);
           return;
         }
+        // Already-registered email: Supabase anti-enumeration returns a fake
+        // success with an empty identities array and sends NO code — without
+        // this check the student lands on the code screen and waits forever.
+        if (data.user && (data.user.identities?.length ?? 0) === 0) {
+          setError(
+            "This email is already registered. Log in instead — the email-code login works if you forgot your password.",
+          );
+          return;
+        }
         if (!data.session) {
           // Email confirmation required — verify the code, then finish onboarding.
           navigation.navigate("VerifyOtp", {
