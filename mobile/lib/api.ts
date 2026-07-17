@@ -311,6 +311,8 @@ export interface ApplicationDetail extends Application {
   studyinfo_reference: string;
   notes: string;
   decision_at: string | null;
+  /** Deep link to this programme on Studyinfo.fi (programme page or pre-filled search). */
+  studyinfo_url: string;
 }
 
 export interface DocumentInfo {

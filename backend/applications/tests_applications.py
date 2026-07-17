@@ -160,3 +160,44 @@ class ApplicationWorkspaceTests(APITestCase):
             ).status_code,
             status.HTTP_404_NOT_FOUND,
         )
+
+
+class StudyinfoDeepLinkTests(APITestCase):
+    """The gate button must never dump students on the Studyinfo homepage."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(email="gate@example.com")
+        self.student = Student.objects.create(user=self.user, onboarding_completed=True)
+        self.uni = University.objects.create(
+            name="LUT", institution_type="university", city="Lappeenranta"
+        )
+        self.client.force_authenticate(self.user)
+
+    def _detail(self, program):
+        app = Application.objects.create(student=self.student, program=program)
+        return self.client.get(reverse("application_detail", args=[app.pk]))
+
+    def test_scraped_program_links_to_its_studyinfo_page(self):
+        program = Program.objects.create(
+            university=self.uni, name="Software Engineering", degree_level="masters",
+            field_of_study="IT", intake="september",
+            external_source="opintopolku", external_id="1.2.246.562.13.999",
+        )
+        resp = self._detail(program)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            resp.data["studyinfo_url"],
+            "https://opintopolku.fi/konfo/en/koulutus/1.2.246.562.13.999",
+        )
+
+    def test_manual_program_falls_back_to_prefilled_search(self):
+        program = Program.objects.create(
+            university=self.uni, name="Data Science & AI", degree_level="masters",
+            field_of_study="IT", intake="september",
+        )
+        resp = self._detail(program)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            resp.data["studyinfo_url"],
+            "https://opintopolku.fi/konfo/en/haku/Data%20Science%20%26%20AI",
+        )

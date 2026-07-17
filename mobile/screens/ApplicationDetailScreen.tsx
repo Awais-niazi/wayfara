@@ -312,15 +312,29 @@ export default function ApplicationDetailScreen({ navigation, route }: Props) {
           <Text style={styles.sectionTitle}>Submit on Studyinfo.fi</Text>
           <Text style={styles.sectionSub}>
             Finnish applications are submitted on the official portal — Wayfara
-            preps everything, you press the button there.
+            preps everything, you press the button there. The link below takes
+            you straight to your programme.
           </Text>
+          <View style={styles.gateSteps}>
+            {[
+              "Open your programme below and sign in (create a Studyinfo account if you don't have one).",
+              `Press "Fill in application" on the programme page.`,
+              "Answer the questions and attach the documents from your checklist above.",
+              "Paste your application number back here so we can track it together.",
+            ].map((step, i) => (
+              <View key={i} style={styles.gateStepRow}>
+                <Text style={styles.gateStepNum}>{String(i + 1).padStart(2, "0")}</Text>
+                <Text style={styles.gateStepText}>{step}</Text>
+              </View>
+            ))}
+          </View>
           <Pressable
-            onPress={() => Linking.openURL("https://opintopolku.fi/konfo/en/")}
+            onPress={() => Linking.openURL(app.studyinfo_url)}
             accessibilityRole="link"
             style={({ pressed }) => [styles.linkBtn, pressed && { opacity: 0.8 }]}
           >
-            <GlobeIcon size={16} color={colors.accent} />
-            <Text style={styles.linkBtnText}>Open Studyinfo.fi</Text>
+            <GlobeIcon size={16} color="#fff" />
+            <Text style={styles.linkBtnText}>Open my programme on Studyinfo</Text>
           </Pressable>
           <TextInput
             value={reference}
@@ -533,18 +547,22 @@ const styles = StyleSheet.create({
   sectionTitle: { fontFamily: fonts.display, fontSize: 16, color: colors.ink },
   sectionSub: { fontFamily: fonts.bodyRegular, fontSize: 12.5, color: colors.textFaint, marginTop: 3, lineHeight: 18 },
 
+  gateSteps: { marginTop: 12, gap: 9 },
+  gateStepRow: { flexDirection: "row", gap: 10, alignItems: "flex-start" },
+  gateStepNum: { fontFamily: fonts.monoBold, fontSize: 11, color: colors.accent, lineHeight: 17 },
+  gateStepText: { flex: 1, fontFamily: fonts.bodyRegular, fontSize: 12.5, color: colors.textMuted, lineHeight: 17 },
   linkBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    height: 44,
+    height: 46,
     borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    marginTop: 12,
+    backgroundColor: colors.accent,
+    marginTop: 14,
+    ...shadow.accent,
   },
-  linkBtnText: { fontFamily: fonts.bodyBold, fontSize: 13.5, color: colors.accent },
+  linkBtnText: { fontFamily: fonts.bodyBold, fontSize: 13.5, color: "#fff" },
   referenceInput: {
     marginTop: 10,
     height: 46,

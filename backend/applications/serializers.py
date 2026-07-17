@@ -135,11 +135,14 @@ class ApplicationListSerializer(StrictModelSerializer):
 
 class ApplicationDetailSerializer(ApplicationListSerializer):
     checklist = serializers.SerializerMethodField()
+    # Deep link to the programme's own Studyinfo page (or a pre-filled search
+    # for uncurated rows) — the workspace's "open the gate" button target.
+    studyinfo_url = serializers.CharField(source="program.studyinfo_url", read_only=True)
 
     class Meta(ApplicationListSerializer.Meta):
         fields = ApplicationListSerializer.Meta.fields + [
             "checklist", "motivation_letter", "studyinfo_reference", "notes",
-            "decision_at",
+            "decision_at", "studyinfo_url",
         ]
         read_only_fields = fields
 

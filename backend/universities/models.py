@@ -146,6 +146,21 @@ class Program(models.Model):
             ),
         ]
 
+    @property
+    def studyinfo_url(self) -> str:
+        """Deep link to this programme on Studyinfo.fi.
+
+        Scraper-ingested rows carry the Opintopolku koulutus oid, which maps
+        straight to the programme page (where "Fill in application" lives).
+        Manually curated rows fall back to a pre-filled Studyinfo search —
+        never the bare homepage, where applicants get lost.
+        """
+        from urllib.parse import quote
+
+        if self.external_source == "opintopolku" and self.external_id:
+            return f"https://opintopolku.fi/konfo/en/koulutus/{self.external_id}"
+        return f"https://opintopolku.fi/konfo/en/haku/{quote(self.name)}"
+
     def __str__(self):
         return f"{self.name} ({self.get_degree_level_display()}) — {self.university.name}"
 
