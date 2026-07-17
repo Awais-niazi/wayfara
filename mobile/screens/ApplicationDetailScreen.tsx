@@ -336,6 +336,17 @@ export default function ApplicationDetailScreen({ navigation, route }: Props) {
             <GlobeIcon size={16} color="#fff" />
             <Text style={styles.linkBtnText}>Open my programme on Studyinfo</Text>
           </Pressable>
+          {app.university_website !== "" && (
+            <Pressable
+              onPress={() => Linking.openURL(app.university_website)}
+              accessibilityRole="link"
+              style={({ pressed }) => [styles.linkBtnGhost, pressed && { opacity: 0.7 }]}
+            >
+              <Text style={styles.linkBtnGhostText}>
+                Programme info on the {app.university} site
+              </Text>
+            </Pressable>
+          )}
           <TextInput
             value={reference}
             onChangeText={setReference}
@@ -563,6 +574,13 @@ const styles = StyleSheet.create({
     ...shadow.accent,
   },
   linkBtnText: { fontFamily: fonts.bodyBold, fontSize: 13.5, color: "#fff" },
+  linkBtnGhost: {
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 6,
+  },
+  linkBtnGhostText: { fontFamily: fonts.bodySemi, fontSize: 12.5, color: colors.accent },
   referenceInput: {
     marginTop: 10,
     height: 46,

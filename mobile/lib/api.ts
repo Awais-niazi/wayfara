@@ -313,6 +313,8 @@ export interface ApplicationDetail extends Application {
   decision_at: string | null;
   /** Deep link to this programme on Studyinfo.fi (programme page or pre-filled search). */
   studyinfo_url: string;
+  /** University's official site — fallback when Studyinfo hasn't published the round yet. */
+  university_website: string;
 }
 
 export interface DocumentInfo {
