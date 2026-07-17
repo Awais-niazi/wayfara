@@ -336,8 +336,26 @@ export default function HomeScreen({ navigation }: Props) {
                     ? matchContext
                       ? `Based on your ${matchContext}`
                       : "Matched to your profile"
-                    : "We're matching universities to your profile — check back in a minute."}
+                    : profile && profile.budget_eur_per_year == null
+                      ? "No tuition-free programmes fit your profile right now — and with no budget set, that's all we look for."
+                      : "Nothing clears your filters right now. Loosen your budget or field of study and we'll re-match instantly."}
                 </Text>
+                {/* Zero matches is almost always a profile setting, not a wait —
+                    matching re-runs the moment the profile changes. */}
+                {matches.length === 0 && (
+                  <PressableScale
+                    onPress={() => navigation.navigate("Profile")}
+                    accessibilityRole="button"
+                    accessibilityLabel="Review your profile to widen your matches"
+                    style={styles.rematchBtn}
+                  >
+                    <Text style={styles.rematchBtnText}>
+                      {profile && profile.budget_eur_per_year == null
+                        ? "Set a budget in your profile"
+                        : "Review my profile"}
+                    </Text>
+                  </PressableScale>
+                )}
               </FadeInUp>
             )}
           </View>
@@ -561,6 +579,18 @@ const styles = StyleSheet.create({
   sectionTitleTight: { fontFamily: fonts.display, fontSize: 18, letterSpacing: -0.3, color: colors.ink, marginTop: 3 },
   seeAll: { fontFamily: fonts.bodySemi, fontSize: 13, color: colors.accent },
   sectionSub: { fontFamily: fonts.bodyRegular, fontSize: 12.5, color: colors.textFaint, marginTop: 2 },
+  rematchBtn: {
+    alignSelf: "flex-start",
+    marginTop: 12,
+    height: 42,
+    paddingHorizontal: 18,
+    borderRadius: radius.md,
+    backgroundColor: colors.accent,
+    alignItems: "center",
+    justifyContent: "center",
+    ...shadow.accent,
+  },
+  rematchBtnText: { fontFamily: fonts.displaySemi, fontSize: 13, color: "#fff" },
 
   uniRow: { gap: 14, paddingHorizontal: 20, paddingTop: 14, paddingBottom: 10 },
   uniCard: {

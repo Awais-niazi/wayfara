@@ -148,10 +148,19 @@ export default function MatchesScreen({ navigation }: Props) {
           ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
           ListEmptyComponent={
             <View style={styles.emptyBox}>
-              <Text style={styles.emptyTitle}>No matches yet</Text>
+              <Text style={styles.emptyTitle}>Nothing clears your filters</Text>
               <Text style={styles.emptyText}>
-                We're matching universities to your profile — check back in a minute.
+                No budget set means tuition-free programmes only — and those are
+                rare. Adjust your budget or field in Profile; matches rebuild
+                the moment you save.
               </Text>
+              <PressableScale
+                onPress={() => navigation.navigate("Profile")}
+                accessibilityRole="button"
+                style={styles.emptyBtn}
+              >
+                <Text style={styles.emptyBtnText}>Open my profile</Text>
+              </PressableScale>
             </View>
           }
         />
@@ -206,6 +215,17 @@ const styles = StyleSheet.create({
   rowScore: { fontFamily: fonts.monoBold, fontSize: 14, color: colors.success },
 
   emptyBox: { alignItems: "center", paddingVertical: 70, paddingHorizontal: 30, gap: 6 },
+  emptyBtn: {
+    marginTop: 12,
+    height: 44,
+    paddingHorizontal: 22,
+    borderRadius: radius.md,
+    backgroundColor: colors.accent,
+    alignItems: "center",
+    justifyContent: "center",
+    ...shadow.accent,
+  },
+  emptyBtnText: { fontFamily: fonts.displaySemi, fontSize: 13.5, color: "#fff" },
   emptyTitle: { fontFamily: fonts.display, fontSize: 17, color: colors.ink },
   emptyText: {
     fontFamily: fonts.bodyRegular,
