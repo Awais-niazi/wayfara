@@ -1,6 +1,8 @@
 from django.contrib import admin
 from django.urls import include, path
 
+from ops.views import DeepHealthView
+
 from .views import HealthCheckView
 
 # Every API endpoint — current and future — lives under this one versioned
@@ -14,6 +16,9 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     # Unversioned and unauthenticated by design — see HealthCheckView.
     path("healthz", HealthCheckView.as_view(), name="health_check"),
+    # Dependencies + dead-man heartbeats; 503 when degraded. The external
+    # uptime monitor (armed at deploy) alerts on non-200. docs/PLAYBOOK.md.
+    path("healthz/deep", DeepHealthView.as_view(), name="health_deep"),
     path(API_V1, include("accounts.urls")),
     path(API_V1, include("advisor.urls")),
     path(API_V1, include("students.urls")),

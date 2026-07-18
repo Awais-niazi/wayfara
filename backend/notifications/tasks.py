@@ -12,8 +12,16 @@ from .services import (
 @shared_task
 def dispatch_due_reminders_task():
     """Beat: every 5 minutes. Sends due journey reminders as notifications."""
-    dispatched, stale = dispatch_due_reminders()
-    return {"dispatched": dispatched, "stale_swallowed": stale}
+    from ops.models import Heartbeat
+
+    try:
+        dispatched, stale = dispatch_due_reminders()
+    except Exception as exc:
+        Heartbeat.fail("reminder-dispatcher", exc)
+        raise
+    result = {"dispatched": dispatched, "stale_swallowed": stale}
+    Heartbeat.beat("reminder-dispatcher", result)
+    return result
 
 
 @shared_task

@@ -32,9 +32,20 @@ def send_push_to_user(user, title, body, data=None):
     try:
         resp = requests.post(EXPO_PUSH_URL, json=messages, timeout=10)
         resp.raise_for_status()
-        _prune_dead_tokens(resp.json(), tokens)
+        payload = resp.json()
+        _prune_dead_tokens(payload, tokens)
+        _record_tickets(payload, tokens)
     except requests.RequestException as exc:
         logger.warning("Expo push failed for %s: %s", user, exc)
+
+
+def _record_tickets(response_json, tokens):
+    """Keep ok-tickets so ops can verify DELIVERY later — Expo can accept a
+    push now and fail it minutes later; only the receipt tells the truth."""
+    from ops.services import record_push_tickets
+
+    tickets = response_json.get("data", []) if isinstance(response_json, dict) else []
+    record_push_tickets(tickets, tokens)
 
 
 def _prune_dead_tokens(response_json, tokens):

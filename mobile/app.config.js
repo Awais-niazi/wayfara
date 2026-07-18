@@ -17,6 +17,10 @@ const API_URL = process.env.WAYFARA_API_URL ?? "http://localhost:8010";
 const SUPABASE_URL = process.env.SUPABASE_URL ?? "";
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY ?? "";
 
+// Sentry (client crash reporting). A DSN is a public identifier, safe to ship.
+// Unset = Sentry stays off (dev default until the mobile project is created).
+const SENTRY_DSN_MOBILE = process.env.SENTRY_DSN_MOBILE ?? "";
+
 /** @type {import('@expo/config').ExpoConfig} */
 module.exports = {
   name: "Wayfara",
@@ -45,5 +49,6 @@ module.exports = {
     apiUrl: API_URL,
     supabaseUrl: SUPABASE_URL,
     supabaseAnonKey: SUPABASE_ANON_KEY,
+    sentryDsn: SENTRY_DSN_MOBILE,
   },
 };

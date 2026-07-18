@@ -55,6 +55,7 @@ INSTALLED_APPS = [
     "chat",
     "scraping",
     "notifications",
+    "ops",
 ]
 
 MIDDLEWARE = [
@@ -313,6 +314,11 @@ if SENTRY_DSN and not TESTING:
     sentry_sdk.init(
         dsn=SENTRY_DSN,
         environment=os.environ.get("SENTRY_ENVIRONMENT", "production"),
+        # Ties every event to the code that produced it (Railway injects the
+        # commit sha at deploy; local dev falls back to "dev").
+        release=os.environ.get("SENTRY_RELEASE")
+        or os.environ.get("RAILWAY_GIT_COMMIT_SHA")
+        or "dev",
         send_default_pii=False,  # student emails/documents never leave our infra
         traces_sample_rate=float(os.environ.get("SENTRY_TRACES_SAMPLE_RATE", "0.1")),
         # Sentry Logs: WARNING+ records from Python logging ship as searchable

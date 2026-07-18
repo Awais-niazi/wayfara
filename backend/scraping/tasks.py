@@ -11,7 +11,15 @@ SCRAPE_TIME_LIMIT = 30 * 60
 
 @shared_task(time_limit=SCRAPE_TIME_LIMIT, soft_time_limit=SCRAPE_TIME_LIMIT - 60)
 def run_all_scrapers_task():
-    return run_all_sources()
+    from ops.models import Heartbeat
+
+    try:
+        run_ids = run_all_sources()
+    except Exception as exc:
+        Heartbeat.fail("scraper-monthly", exc)
+        raise
+    Heartbeat.beat("scraper-monthly", {"runs": len(run_ids)})
+    return run_ids
 
 
 @shared_task(time_limit=SCRAPE_TIME_LIMIT, soft_time_limit=SCRAPE_TIME_LIMIT - 60)

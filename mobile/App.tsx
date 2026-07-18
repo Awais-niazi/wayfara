@@ -1,4 +1,6 @@
 import { StatusBar } from "expo-status-bar";
+import Constants from "expo-constants";
+import * as Sentry from "@sentry/react-native";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -34,6 +36,18 @@ import MainTabs from "./navigation/MainTabs";
 import MatchDetailScreen from "./screens/MatchDetailScreen";
 import NotificationsScreen from "./screens/NotificationsScreen";
 import ApplicationDetailScreen from "./screens/ApplicationDetailScreen";
+
+// Client crash reporting — inert until a DSN is configured (mobile/.env:
+// SENTRY_DSN_MOBILE). Sibling of the backend's Sentry; see docs/PLAYBOOK.md.
+const sentryDsn = (Constants.expoConfig?.extra as { sentryDsn?: string } | undefined)?.sentryDsn;
+if (sentryDsn) {
+  Sentry.init({
+    dsn: sentryDsn,
+    environment: __DEV__ ? "development" : "production",
+    // Errors only for now — tracing/replay are paid-tier noise at this stage.
+    tracesSampleRate: 0,
+  });
+}
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 

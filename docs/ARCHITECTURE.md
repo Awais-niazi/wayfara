@@ -675,8 +675,8 @@ Awais's mandated launch-readiness checklist. Status as of this document:
 | 9 | Rate limiting | 🟢 | DRF global + onboarding throttles; auth-endpoint limits are Supabase's |
 | 10 | Caching & CDN | 🟡 | Redis cache + cached discovery API; **CDN untouched** (no static/media host yet) |
 | 11 | Load balancing & scaling | 🔴 | Stateless design honoured; nothing to balance yet (blocked on Layer 5); `/healthz` ready as the LB health-check target |
-| 12 | Error tracking & logs | 🟢 | Sentry + Sentry Logs (WARNING+), env-gated |
-| 13 | Availability & recovery | 🟡 | `backup_db.sh` exists; **no tested restore / uptime monitoring** |
+| 12 | Error tracking & logs | 🟢 | Sentry (backend + mobile) with release tags; alerts relay via Discord; three-layer observability: exceptions + `ops` heartbeats/`healthz/deep` + business canaries (July 2026); runbook in `docs/PLAYBOOK.md` |
+| 13 | Availability & recovery | 🟡 | `backup_db.sh` exists; `/healthz/deep` ready as the uptime target; **no tested restore; external pinger armed at deploy** (PLAYBOOK §9) |
 
 **Reading the board:** the two reds plus the yellow halves of 6/7/8/10/13 are
 largely gated by **one decision — picking a host (Railway)**. Deploying lights up
