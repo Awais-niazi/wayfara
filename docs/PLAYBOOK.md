@@ -124,7 +124,14 @@ canaries. A silent failure has to slip through all three.
 
 - **Sentry → Discord**: all alert rules post to `#alerts`; the Discord app
   delivers the phone push (Sentry has no mobile app). This path works even
-  when our backend is completely down.
+  when our backend is completely down. Verified end-to-end 18 Jul 2026.
+  - Editing a rule (Sentry's UI hides this well): **Monitors → Alerts →
+    click the rule's NAME** → scroll to the **THEN** block → the dropdown
+    labelled *"Select an action"* IS the add-action button → Discord →
+    server + `#alerts`. The **"Send Test Notification"** button right there
+    verifies the whole relay without firing a real event.
+  - Wired: `python` (backend) high-priority rule + `wayfara-mobile` rule.
+    Any NEW Sentry project needs its rule wired the same way.
 
 ## 6. Alert response quick table
 
