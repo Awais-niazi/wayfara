@@ -319,6 +319,10 @@ u.delete()"
 - [ ] Run: `migrate` + all six setup/seed commands (§4)
 - [ ] Uptime monitor (UptimeRobot/Better Stack): `/healthz` every 1 min AND `/healthz/deep` every 5 min, alert on non-200 → email + their phone app
 - [ ] Sentry: alert rules → Discord `#alerts` verified with the §8 test event
+- [ ] Sentry: add filter `environment equals production` to the alert rules —
+      otherwise dev-machine reload hiccups page the on-call (a transient
+      INSTALLED_APPS boot error did exactly this on 18 Jul 2026; resolved,
+      first live catch of the system)
 - [ ] Mobile: `WAYFARA_API_URL` → Railway URL, `SENTRY_DSN_MOBILE` set in EAS
 - [ ] Resend domain verified (until then auth mail reaches ONLY the owner inbox)
 - [ ] Rotate the R2 token that appeared in a screenshot during setup (July 2026)
