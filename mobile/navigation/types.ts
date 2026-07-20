@@ -29,7 +29,12 @@ export type RootStackParamList = {
   MatchDetail: { match: Match };
   ApplicationDetail: { id: number };
   Notifications: undefined;
+  // One profile category (personal / academic / test / plan) — pushed from
+  // the Profile tab's rows, native settings style.
+  ProfileSection: { section: ProfileSectionKey };
 };
+
+export type ProfileSectionKey = "personal" | "academic" | "test" | "plan";
 
 /** Props for a screen living inside the tab dock (can also reach stack routes). */
 export type TabScreenProps<T extends keyof TabParamList> = CompositeScreenProps<

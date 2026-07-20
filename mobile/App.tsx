@@ -36,6 +36,7 @@ import MainTabs from "./navigation/MainTabs";
 import MatchDetailScreen from "./screens/MatchDetailScreen";
 import NotificationsScreen from "./screens/NotificationsScreen";
 import ApplicationDetailScreen from "./screens/ApplicationDetailScreen";
+import ProfileSectionScreen from "./screens/ProfileSectionScreen";
 
 // Client crash reporting — inert until a DSN is configured (mobile/.env:
 // SENTRY_DSN_MOBILE). Sibling of the backend's Sentry; see docs/PLAYBOOK.md.
@@ -73,6 +74,7 @@ function RootNavigator() {
           <Stack.Screen name="MatchDetail" component={MatchDetailScreen} />
           <Stack.Screen name="ApplicationDetail" component={ApplicationDetailScreen} />
           <Stack.Screen name="Notifications" component={NotificationsScreen} />
+          <Stack.Screen name="ProfileSection" component={ProfileSectionScreen} />
         </>
       ) : (
         <>
