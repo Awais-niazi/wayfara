@@ -23,6 +23,7 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { colors, fonts, radius, shadow } from "../theme";
 import { ChevronLeftIcon, ChevronRightIcon, CheckIcon, GlobeIcon } from "../components/icons";
 import { CodeBadge, Stamp, cityCode, uniCode } from "../components/travel";
+import { CityScape, SCENE_OVERLAY_INK, sceneFor } from "../components/scenery";
 import {
   createApplication,
   firstErrorMessage,
@@ -35,9 +36,9 @@ import type { RootStackParamList } from "../navigation/types";
 
 type Props = NativeStackScreenProps<RootStackParamList, "MatchDetail">;
 
-// One warm sand hero for every university — the destination code carries the
-// identity now, not a rotating tint.
-const HERO_TINT = "#EFE0CC";
+// The hero is the city's scene — Helsinki arrives by sea, Rovaniemi under
+// the aurora — so the destination, not a flat tint, carries the identity.
+const HERO_HEIGHT = 210;
 
 const FIT_LABELS: Record<string, { label: string; ink: string; bg: string }> = {
   safety: { label: "Safety pick", ink: colors.success, bg: "#E8F4EC" },
@@ -149,9 +150,18 @@ export default function MatchDetailScreen({ navigation, route }: Props) {
   return (
     <View style={styles.root}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollBody}>
-        {/* hero — destination header */}
-        <View style={[styles.hero, { backgroundColor: HERO_TINT }]}>
-          <Text style={styles.heroWatermark} numberOfLines={1}>
+        {/* hero — the destination itself */}
+        <View style={styles.hero}>
+          <View style={StyleSheet.absoluteFill}>
+            <CityScape city={match.city} height={HERO_HEIGHT} />
+          </View>
+          <Text
+            style={[
+              styles.heroWatermark,
+              { color: SCENE_OVERLAY_INK[sceneFor(match.city)], opacity: 0.22 },
+            ]}
+            numberOfLines={1}
+          >
             {cityCode(match.city)}
           </Text>
           <SafeAreaView edges={["top"]}>
@@ -324,16 +334,16 @@ const styles = StyleSheet.create({
   pad: { paddingHorizontal: 20 },
   pressed: { opacity: 0.7 },
 
-  hero: { paddingBottom: 34, overflow: "hidden" },
-  // The destination code as a giant printed watermark behind the hero bar.
+  hero: { height: HERO_HEIGHT, overflow: "hidden" },
+  // The destination code as a giant printed watermark over the scene's sky
+  // (ink + opacity set per scene at the call site).
   heroWatermark: {
     position: "absolute",
     right: -8,
-    bottom: -26,
+    top: 44,
     fontFamily: fonts.monoBold,
-    fontSize: 110,
+    fontSize: 96,
     letterSpacing: 4,
-    color: "rgba(255,255,255,0.5)",
   },
   heroBar: {
     flexDirection: "row",

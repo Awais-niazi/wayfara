@@ -15,12 +15,13 @@ import {
   Pressable,
   RefreshControl,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
 
 import { colors, fonts, radius, shadow, spacing } from "../theme";
 import { ChevronRightIcon } from "../components/icons";
-import { CodeBadge, uniCode } from "../components/travel";
+import { cityCode } from "../components/travel";
+import { CityScape, CityTile } from "../components/scenery";
 import { FadeInUp, PressableScale } from "../components/motion";
 
 import { getMatches, type Match } from "../lib/api";
@@ -46,7 +47,7 @@ function MatchRow({ match, onPress }: { match: Match; onPress: () => void }) {
       accessibilityLabel={`${match.university}, ${match.program_name}, ${pct}% match`}
       style={styles.row}
     >
-      <CodeBadge code={uniCode(match.university)} size={44} />
+      <CityTile city={match.city} code={cityCode(match.city)} size={50} />
       <View style={{ flex: 1 }}>
         <Text style={styles.rowName} numberOfLines={1}>{match.university}</Text>
         <Text style={styles.rowMeta} numberOfLines={1}>
@@ -92,17 +93,27 @@ export default function MatchesScreen({ navigation }: Props) {
     data: matches.filter((m) => m.fit === s.fit),
   })).filter((s) => s.data.length > 0);
 
+  const insets = useSafeAreaInsets();
+  const bannerHeight = 148 + insets.top;
+
   return (
-    <SafeAreaView edges={["top"]} style={styles.root}>
+    <View style={styles.root}>
+      {/* Arrivals banner: the harbour panorama runs full-bleed under the
+          status bar; the cream counter-sign strip keeps the type on-contrast. */}
       <FadeInUp>
-        <View style={styles.topBar}>
-          <Text style={styles.overline}>ARRIVALS — RANKED BY FIT</Text>
-          <Text style={styles.title}>Your matches</Text>
-          {!loading && !error && (
-            <Text style={styles.subtitle}>
-              {matches.length} programme{matches.length === 1 ? "" : "s"}, best fit first
-            </Text>
-          )}
+        <View style={[styles.banner, { height: bannerHeight }]}>
+          <View style={StyleSheet.absoluteFill}>
+            <CityScape scene="harbour" height={bannerHeight} />
+          </View>
+          <View style={styles.bannerSign}>
+            <Text style={styles.overline}>ARRIVALS — RANKED BY FIT</Text>
+            <Text style={styles.title}>Your matches</Text>
+            {!loading && !error && (
+              <Text style={styles.subtitle}>
+                {matches.length} programme{matches.length === 1 ? "" : "s"}, best fit first
+              </Text>
+            )}
+          </View>
         </View>
       </FadeInUp>
 
@@ -165,14 +176,23 @@ export default function MatchesScreen({ navigation }: Props) {
           }
         />
       )}
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.canvas },
 
-  topBar: { paddingHorizontal: 20, paddingTop: 14, paddingBottom: 4 },
+  banner: {
+    justifyContent: "flex-end",
+    overflow: "hidden",
+  },
+  bannerSign: {
+    backgroundColor: "rgba(251,246,239,0.92)",
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    paddingBottom: 8,
+  },
   overline: { fontFamily: fonts.mono, fontSize: 9.5, letterSpacing: 1.6, color: colors.textFaintest },
   title: { fontFamily: fonts.display, fontSize: 24, letterSpacing: -0.5, color: colors.ink, marginTop: 4 },
   subtitle: { fontFamily: fonts.bodyRegular, fontSize: 12.5, color: colors.textFaint, marginTop: 2 },
