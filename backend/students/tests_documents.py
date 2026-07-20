@@ -53,6 +53,32 @@ class DocumentApiTests(APITestCase):
         resp = self.upload(doc_type="tax_return")
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_content_must_match_extension(self):
+        # Extension and content-type say PDF/JPG, but the bytes don't — a
+        # renamed executable must not enter the document pool.
+        for fake in (
+            upload_file(name="cv.pdf", content=b"MZ\x90\x00 not a pdf"),
+            upload_file(name="photo.jpg", content=b"GIF89a nope", content_type="image/jpeg"),
+            upload_file(name="scan.png", content=b"%PDF-1.4 wrong wrapper", content_type="image/png"),
+        ):
+            resp = self.upload(file=fake)
+            self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST, fake.name)
+        self.assertEqual(Document.objects.count(), 0)
+
+    def test_genuine_signatures_accepted(self):
+        png = upload_file(
+            name="passport.png",
+            content=b"\x89PNG\r\n\x1a\n rest-of-image",
+            content_type="image/png",
+        )
+        resp = self.upload(doc_type="passport", file=png)
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        jpg = upload_file(
+            name="photo.jpg", content=b"\xff\xd8\xff\xe0 jfif", content_type="image/jpeg"
+        )
+        resp = self.upload(doc_type="cv", file=jpg)
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+
     def test_download_is_owner_only(self):
         self.upload()
         doc = Document.objects.get()

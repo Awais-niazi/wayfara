@@ -1,9 +1,16 @@
+import os
+
 from django.contrib import admin
 from django.urls import include, path
 
 from ops.views import DeepHealthView
 
 from .views import HealthCheckView
+
+# The admin path is env-configurable so production doesn't have to sit on the
+# default URL every scanner probes first. Dev keeps "admin/" (and the route-
+# conventions guardrail test expects it).
+ADMIN_PATH = os.environ.get("DJANGO_ADMIN_PATH", "admin/").strip("/") + "/"
 
 # Every API endpoint — current and future — lives under this one versioned
 # prefix. Bump to "api/v2/" only for a breaking change, and keep v1 alive
@@ -13,7 +20,7 @@ from .views import HealthCheckView
 API_V1 = "api/v1/"
 
 urlpatterns = [
-    path("admin/", admin.site.urls),
+    path(ADMIN_PATH, admin.site.urls),
     # Unversioned and unauthenticated by design — see HealthCheckView.
     path("healthz", HealthCheckView.as_view(), name="health_check"),
     # Dependencies + dead-man heartbeats; 503 when degraded. The external

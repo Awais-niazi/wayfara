@@ -75,6 +75,7 @@ missing — a crash at deploy is intentional and better than silent breakage.
 | `PUSH_ENABLED` | hard kill-switch for Expo push | `false` = no pushes at all (check FIRST when "pushes stopped") |
 | `SENTRY_DSN` / `SENTRY_ENVIRONMENT` / `SENTRY_RELEASE` / `SENTRY_TRACES_SAMPLE_RATE` | error tracking | dev must set `SENTRY_ENVIRONMENT=development` or dev noise pollutes prod alerts |
 | `SECURE_HSTS_SECONDS` / `LOG_LEVEL` / `CELERY_TIMEZONE` / `ADVISOR_CONSOLE_URL` | transport sec / log verbosity / scraper clock (Helsinki) / console links | low-risk knobs |
+| `DJANGO_ADMIN_PATH` | admin URL prefix (default `admin/`) | forget the slug → admin "404s"; it moved, it didn't break. Bookmark the prod URL |
 
 ### Mobile (`mobile/.env`, gitignored → `app.config.js` → `Constants.expoConfig.extra`)
 
@@ -309,6 +310,10 @@ u.delete()"
 
 # force a Sentry test event (verifies the whole alert path to Discord)
 .venv/bin/python manage.py shell -c "import sentry_sdk; sentry_sdk.capture_message('Wayfara alert-path test', level='error')"
+
+# admin account locked out (django-axes, 5 failed logins → 1 h lock on the
+# username; symptom: correct password rejected at /admin/login/)
+.venv/bin/python manage.py axes_reset
 ```
 
 ## 9. Deploy-day arming checklist (Railway)
@@ -326,6 +331,15 @@ u.delete()"
 - [ ] Mobile: `WAYFARA_API_URL` → Railway URL, `SENTRY_DSN_MOBILE` set in EAS
 - [ ] Resend domain verified (until then auth mail reaches ONLY the owner inbox)
 - [ ] Rotate the R2 token that appeared in a screenshot during setup (July 2026)
+- [ ] Optional: `DJANGO_ADMIN_PATH=<random-slug>/` so prod admin isn't at the
+      URL every scanner probes first (login is axes-protected either way)
+- [ ] Supabase dashboard → Auth: review rate limits (OTP sends/hour, sign-ups)
+      and enable leaked-password protection (HaveIBeenPwned check)
+- [ ] Railway Postgres: confirm the backup schedule exists, then run ONE
+      restore drill into a scratch database and write the exact steps into
+      §7.12 — an unverified backup is a hypothesis, not a backup
+- [ ] R2 bucket `wayfara-documents`: enable object versioning so an accidental
+      delete/overwrite of a student document is recoverable
 
 ## 10. After every incident
 

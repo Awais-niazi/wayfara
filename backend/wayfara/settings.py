@@ -47,6 +47,7 @@ INSTALLED_APPS = [
     "rest_framework",
     "corsheaders",
     "django_celery_beat",
+    "axes",
     "accounts",
     "advisor",
     "students",
@@ -62,11 +63,16 @@ MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "corsheaders.middleware.CorsMiddleware",
+    # Reject oversized bodies by Content-Length BEFORE Django streams them to
+    # disk — the serializers' 10 MB cap only runs after the full upload lands.
+    "wayfara.middleware.MaxBodySizeMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    # Axes watches login failures; last so it sees the final auth outcome.
+    "axes.middleware.AxesMiddleware",
 ]
 
 ROOT_URLCONF = "wayfara.urls"
@@ -112,6 +118,27 @@ else:
             "LOCATION": os.environ.get("CACHE_URL", "redis://localhost:6379/6"),
         }
     }
+
+# ─── Admin login brute-force protection (django-axes) ────────────────────────
+# The API authenticates via Supabase JWTs (never Django login), so axes guards
+# exactly one surface: /admin/. Lockout keys on the username, not the client
+# IP — behind Railway's proxy the observed IP is either the proxy itself
+# (locking everyone out) or a spoofable forwarded header. Worst case is a
+# temporary lock on the admin account: acceptable for a one-admin app, and
+# `manage.py axes_reset` clears it (see docs/PLAYBOOK.md crib sheet).
+AUTHENTICATION_BACKENDS = [
+    "axes.backends.AxesStandaloneBackend",
+    "django.contrib.auth.backends.ModelBackend",
+]
+AXES_ENABLED = not TESTING  # the suite logs in constantly; don't count those
+AXES_FAILURE_LIMIT = 5
+AXES_COOLOFF_TIME = 1  # hours
+AXES_LOCKOUT_PARAMETERS = ["username"]
+AXES_RESET_ON_SUCCESS = True
+# axes.W006 wants ip_address in the lockout key — rejected on purpose (see
+# the block comment above): behind the proxy that's either useless or
+# spoofable. Silenced so `manage.py check` stays clean for real findings.
+SILENCED_SYSTEM_CHECKS = ["axes.W006"]
 
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},

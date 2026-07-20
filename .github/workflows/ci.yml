@@ -50,3 +50,30 @@ jobs:
 
       - name: Run tests
         run: python manage.py test --verbosity=2
+
+  # Dependency CVE surveillance — non-blocking on purpose: a fresh advisory in
+  # a transitive dep shouldn't freeze deploys, but it must show up in red on
+  # the Actions page instead of nowhere at all.
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Audit Python dependencies (pip-audit)
+        continue-on-error: true
+        run: |
+          pip install pip-audit
+          pip-audit -r backend/requirements.txt
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Audit mobile dependencies (npm audit)
+        continue-on-error: true
+        working-directory: mobile
+        run: npm audit --omit=dev

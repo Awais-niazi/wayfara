@@ -156,6 +156,16 @@ class ProfileSerializer(StrictModelSerializer):
 MAX_DOCUMENT_BYTES = 10 * 1024 * 1024  # 10 MB — a scan, not an archive
 ALLOWED_DOC_EXTENSIONS = {"pdf", "jpg", "jpeg", "png"}
 ALLOWED_DOC_CONTENT_TYPES = {"application/pdf", "image/jpeg", "image/png"}
+# What the file's first bytes must actually be, per extension. Extension and
+# declared content-type are both attacker-controlled; the magic bytes are the
+# only claim about the format we verify ourselves — these files get opened by
+# admins and advisors.
+MAGIC_BY_EXTENSION = {
+    "pdf": (b"%PDF-",),
+    "jpg": (b"\xff\xd8\xff",),
+    "jpeg": (b"\xff\xd8\xff",),
+    "png": (b"\x89PNG\r\n\x1a\n",),
+}
 
 
 class DocumentUploadSerializer(StrictModelSerializer):
@@ -173,6 +183,13 @@ class DocumentUploadSerializer(StrictModelSerializer):
         content_type = getattr(value, "content_type", "") or ""
         if content_type and content_type not in ALLOWED_DOC_CONTENT_TYPES:
             raise serializers.ValidationError("Upload a PDF, JPG or PNG.")
+        head = value.read(8)
+        value.seek(0)
+        if not any(head.startswith(sig) for sig in MAGIC_BY_EXTENSION[extension]):
+            raise serializers.ValidationError(
+                "The file's content doesn't match its type — upload the "
+                "original PDF, JPG or PNG."
+            )
         return value
 
     def create(self, validated_data):
