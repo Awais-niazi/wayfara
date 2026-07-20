@@ -45,13 +45,17 @@ export function PrimaryButton({
   label,
   onPress,
   style,
+  icon,
 }: {
   label: string;
   onPress?: () => void;
   style?: ViewStyle;
+  /** Optional leading icon, rendered before the label. */
+  icon?: React.ReactNode;
 }) {
   return (
     <PressableScale onPress={onPress} style={[styles.primaryBtn, style]}>
+      {icon}
       <Text style={styles.primaryLabel}>{label}</Text>
     </PressableScale>
   );
@@ -98,6 +102,8 @@ const styles = StyleSheet.create({
     height: 56,
     borderRadius: radius.xl,
     backgroundColor: colors.accent,
+    flexDirection: "row",
+    gap: 8,
     alignItems: "center",
     justifyContent: "center",
     ...shadow.accent,

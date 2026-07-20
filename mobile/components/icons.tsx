@@ -151,6 +151,66 @@ export function SparkleIcon({ size = 21, color = "#7B4FD6" }: IconProps) {
   );
 }
 
+// ── Profile section icons ────────────────────────────────────────────────────
+export function IdCardIcon({ size = 20, color = "#4A3D31", strokeWidth = 1.9 }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <Rect x="3" y="5" width="18" height="14" rx="2.5" {...stroke(color, strokeWidth)} />
+      <Circle cx="8.5" cy="10.5" r="2" {...stroke(color, strokeWidth)} />
+      <Path d="M6 15.5 C6.6 14 10.4 14 11 15.5" {...stroke(color, strokeWidth)} />
+      <Path d="M14 9.5 H18 M14 13 H18" {...stroke(color, strokeWidth)} />
+    </Svg>
+  );
+}
+
+export function GradCapIcon({ size = 20, color = "#4A3D31", strokeWidth = 1.9 }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <Path d="M2 9.5 L12 5 L22 9.5 L12 14 Z" {...stroke(color, strokeWidth)} />
+      <Path d="M6.5 12.2 V16.3 C6.5 18.4 17.5 18.4 17.5 16.3 V12.2" {...stroke(color, strokeWidth)} />
+      <Path d="M22 9.5 V14.5" {...stroke(color, strokeWidth)} />
+    </Svg>
+  );
+}
+
+export function CertificateIcon({ size = 20, color = "#4A3D31", strokeWidth = 1.9 }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <Circle cx="12" cy="9" r="5.2" {...stroke(color, strokeWidth)} />
+      <Path d="M9.6 13.4 L8.2 20.5 L12 18.5 L15.8 20.5 L14.4 13.4" {...stroke(color, strokeWidth)} />
+    </Svg>
+  );
+}
+
+export function WalletIcon({ size = 20, color = "#4A3D31", strokeWidth = 1.9 }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <Path d="M4 7.5 H18.5 A1.5 1.5 0 0 1 20 9 V17.5 A1.5 1.5 0 0 1 18.5 19 H5.5 A1.5 1.5 0 0 1 4 17.5 Z" {...stroke(color, strokeWidth)} />
+      <Path d="M4 7.5 A1.5 1.5 0 0 1 5.5 6 H16" {...stroke(color, strokeWidth)} />
+      <Path d="M15.5 12.5 H17" {...stroke(color, strokeWidth)} />
+    </Svg>
+  );
+}
+
+export function CalendarIcon({ size = 20, color = "#4A3D31", strokeWidth = 1.9 }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <Rect x="4" y="5.5" width="16" height="14.5" rx="2.5" {...stroke(color, strokeWidth)} />
+      <Path d="M4 10.5 H20 M8.5 3.5 V7 M15.5 3.5 V7" {...stroke(color, strokeWidth)} />
+      <Path d="M8.5 14.5 H10 M14 14.5 H15.5" {...stroke(color, strokeWidth)} />
+    </Svg>
+  );
+}
+
+export function LogOutIcon({ size = 20, color = "#B3402A", strokeWidth = 1.9 }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <Path d="M14 5 H6.5 A1.5 1.5 0 0 0 5 6.5 V17.5 A1.5 1.5 0 0 0 6.5 19 H14" {...stroke(color, strokeWidth)} />
+      <Path d="M10 12 H20.5 M17 8.5 L20.5 12 L17 15.5" {...stroke(color, strokeWidth)} />
+    </Svg>
+  );
+}
+
 // ── Tab bar icons ────────────────────────────────────────────────────────────
 export function HomeIcon({ size = 24, color = "#A99B8D", strokeWidth = 2 }: IconProps) {
   return (

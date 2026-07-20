@@ -22,7 +22,15 @@ import { LinearGradient } from "expo-linear-gradient";
 import { colors, fonts, radius, shadow, spacing } from "../theme";
 import { PrimaryButton } from "../components/ui";
 import { Field, ChoiceRow, FormError } from "../components/form";
-import { CheckIcon } from "../components/icons";
+import {
+  CertificateIcon,
+  CheckIcon,
+  ChevronRightIcon,
+  GradCapIcon,
+  IdCardIcon,
+  LogOutIcon,
+  WalletIcon,
+} from "../components/icons";
 import { TicketDivider, TicketField } from "../components/travel";
 import { FadeInUp } from "../components/motion";
 
@@ -57,6 +65,57 @@ import { useAuth } from "../context/AuthContext";
 import type { TabScreenProps } from "../navigation/types";
 
 type Props = TabScreenProps<"Profile">;
+
+/** Label for a value from a {value, label} options array. */
+const labelOf = (options: { value: string; label: string }[], value: string) =>
+  options.find((o) => o.value === value)?.label ?? "";
+
+type SectionKey = "personal" | "academic" | "test" | "plan";
+
+/** One collapsible settings category: icon tile + title + a live summary of
+ *  its values while closed. Only one section is open at a time — the tidy
+ *  state is the default state. */
+function Section({
+  icon,
+  title,
+  summary,
+  open,
+  onToggle,
+  hasError,
+  children,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  summary: string;
+  open: boolean;
+  onToggle: () => void;
+  hasError?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <View style={styles.section}>
+      <Pressable
+        onPress={onToggle}
+        accessibilityRole="button"
+        accessibilityLabel={`${title}, ${open ? "collapse" : "expand"}`}
+        style={({ pressed }) => [styles.sectionHead, pressed && { opacity: 0.75 }]}
+      >
+        <View style={styles.sectionIcon}>{icon}</View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.sectionHeadTitle}>{title}</Text>
+          <Text style={styles.sectionHeadSummary} numberOfLines={1}>
+            {summary}
+          </Text>
+        </View>
+        {hasError && <View style={styles.errorDot} />}
+        <View style={{ transform: [{ rotate: open ? "90deg" : "0deg" }] }}>
+          <ChevronRightIcon size={17} color={colors.textFaintest} />
+        </View>
+      </Pressable>
+      {open && <View style={styles.sectionBody}>{children}</View>}
+    </View>
+  );
+}
 
 /** Passport MRZ-style line: pure theatre, but it sells the ID page. */
 function mrzLine(first: string, last: string): string {
@@ -143,6 +202,10 @@ export default function ProfileScreen(_props: Props) {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  // Accordion: everything starts folded — the tidy state is the default.
+  const [openSection, setOpenSection] = useState<SectionKey | null>(null);
+  const toggle = (key: SectionKey) =>
+    setOpenSection((current) => (current === key ? null : key));
 
   const load = () => {
     setLoading(true);
@@ -175,8 +238,21 @@ export default function ProfileScreen(_props: Props) {
   const budgetErr = form ? budgetError(form.budget) : null;
   const hasErrors = !!(gradesErr || scoreErr || budgetErr);
 
+  // A blocked save must show WHERE the problem is, not just refuse.
+  const erroredSection: SectionKey | null = gradesErr
+    ? "academic"
+    : scoreErr
+      ? "test"
+      : budgetErr
+        ? "plan"
+        : null;
+
   const onSave = async () => {
-    if (!dirty || saving || hasErrors) return;
+    if (hasErrors && erroredSection) {
+      setOpenSection(erroredSection);
+      return;
+    }
+    if (!dirty || saving) return;
     setSaving(true);
     setSaveError(null);
     try {
@@ -279,135 +355,196 @@ export default function ProfileScreen(_props: Props) {
             </View>
           </FadeInUp>
 
-          <Text style={styles.sectionTitle}>About you</Text>
-          <View style={styles.fields}>
-            <Field
-              label="First name"
-              value={form.first_name}
-              onChangeText={(t) => set("first_name", t)}
-              placeholder="Ayesha"
-              autoCapitalize="words"
-            />
-            <Field
-              label="Last name"
-              value={form.last_name}
-              onChangeText={(t) => set("last_name", t)}
-              placeholder="Khan"
-              autoCapitalize="words"
-            />
-            <Field
-              label="Phone"
-              value={form.phone}
-              onChangeText={(t) => set("phone", t)}
-              placeholder="+92 300 1234567"
-              keyboardType="phone-pad"
-            />
-            <Field
-              label="Home city"
-              value={form.home_city}
-              onChangeText={(t) => set("home_city", t)}
-              placeholder="Lahore"
-              autoCapitalize="words"
-            />
-            <Field
-              label="Nationality"
-              value={form.nationality}
-              onChangeText={(t) => set("nationality", t)}
-              placeholder="Pakistani"
-              autoCapitalize="words"
-            />
-          </View>
+          {/* Categories, all folded by default — headers carry a live summary
+              so the closed state still reads at a glance. */}
+          <View style={styles.sections}>
+            <Section
+              icon={<IdCardIcon size={20} color={colors.accent} />}
+              title="Personal info"
+              summary={
+                [displayName, form.phone, form.home_city].filter(Boolean).join(" · ") ||
+                "Name, contact & nationality"
+              }
+              open={openSection === "personal"}
+              onToggle={() => toggle("personal")}
+            >
+              <Field
+                label="First name"
+                value={form.first_name}
+                onChangeText={(t) => set("first_name", t)}
+                placeholder="Ayesha"
+                autoCapitalize="words"
+              />
+              <Field
+                label="Last name"
+                value={form.last_name}
+                onChangeText={(t) => set("last_name", t)}
+                placeholder="Khan"
+                autoCapitalize="words"
+              />
+              <Field
+                label="Phone"
+                value={form.phone}
+                onChangeText={(t) => set("phone", t)}
+                placeholder="+92 300 1234567"
+                keyboardType="phone-pad"
+              />
+              <Field
+                label="Home city"
+                value={form.home_city}
+                onChangeText={(t) => set("home_city", t)}
+                placeholder="Lahore"
+                autoCapitalize="words"
+              />
+              <Field
+                label="Nationality"
+                value={form.nationality}
+                onChangeText={(t) => set("nationality", t)}
+                placeholder="Pakistani"
+                autoCapitalize="words"
+              />
+            </Section>
 
-          <Text style={styles.sectionTitle}>Your study plan</Text>
-          <Text style={styles.sectionSub}>
-            Changing these updates your university matches.
-          </Text>
-          <View style={styles.fields}>
-            <ChoiceRow
-              label="Last completed education"
-              options={EDUCATION_LEVELS}
-              value={form.study_level}
-              onChange={(v) => set("study_level", v)}
-            />
-            <ChoiceRow
-              label="Field of study"
-              options={FIELDS}
-              value={form.field_of_study}
-              onChange={(v) => set("field_of_study", v)}
-            />
-            <ChoiceRow
-              label="Grade type"
-              options={GRADE_SCALES}
-              value={form.grade_scale}
-              onChange={(v) => {
-                set("grade_scale", v);
-                set("grades", "");
-              }}
-            />
-            {form.grade_scale !== "" && (
-              <Field
-                label="Your grade"
-                value={form.grades}
-                onChangeText={(t) => set("grades", t)}
-                placeholder={GRADE_INPUT[form.grade_scale].placeholder}
-                keyboardType={GRADE_INPUT[form.grade_scale].keyboardType}
-                autoCapitalize={form.grade_scale === "letter" ? "characters" : "none"}
-                maxLength={GRADE_INPUT[form.grade_scale].maxLength}
-                error={gradesErr}
-                hint={GRADE_INPUT[form.grade_scale].hint}
-              />
-            )}
-            <ChoiceRow
-              label="English test"
-              options={TEST_STATUSES}
-              value={form.language_test_status}
-              onChange={(v) => set("language_test_status", v)}
-            />
-            {form.language_test_status === "taken" && (
+            <Section
+              icon={<GradCapIcon size={20} color={colors.accent} />}
+              title="Academic background"
+              summary={
+                [labelOf(EDUCATION_LEVELS, form.study_level), labelOf(FIELDS, form.field_of_study)]
+                  .filter(Boolean)
+                  .join(" · ") || "Education, field & grades"
+              }
+              open={openSection === "academic"}
+              onToggle={() => toggle("academic")}
+              hasError={!!gradesErr}
+            >
+              <Text style={styles.matchesHint}>
+                Changing these updates your university matches.
+              </Text>
               <ChoiceRow
-                label="Which test?"
-                options={LANGUAGE_TESTS}
-                value={form.language_test}
-                onChange={(v) => set("language_test", v)}
+                label="Last completed education"
+                options={EDUCATION_LEVELS}
+                value={form.study_level}
+                onChange={(v) => set("study_level", v)}
               />
-            )}
-            {form.language_test_status === "taken" && form.language_test !== "" && (
+              <ChoiceRow
+                label="Field of study"
+                options={FIELDS}
+                value={form.field_of_study}
+                onChange={(v) => set("field_of_study", v)}
+              />
+              <ChoiceRow
+                label="Grade type"
+                options={GRADE_SCALES}
+                value={form.grade_scale}
+                onChange={(v) => {
+                  set("grade_scale", v);
+                  set("grades", "");
+                }}
+              />
+              {form.grade_scale !== "" && (
+                <Field
+                  label="Your grade"
+                  value={form.grades}
+                  onChangeText={(t) => set("grades", t)}
+                  placeholder={GRADE_INPUT[form.grade_scale].placeholder}
+                  keyboardType={GRADE_INPUT[form.grade_scale].keyboardType}
+                  autoCapitalize={form.grade_scale === "letter" ? "characters" : "none"}
+                  maxLength={GRADE_INPUT[form.grade_scale].maxLength}
+                  error={gradesErr}
+                  hint={GRADE_INPUT[form.grade_scale].hint}
+                />
+              )}
+            </Section>
+
+            <Section
+              icon={<CertificateIcon size={20} color={colors.accent} />}
+              title="English test"
+              summary={
+                form.language_test_status === "taken" && form.language_test !== ""
+                  ? `${labelOf(LANGUAGE_TESTS, form.language_test)}${form.language_test_score ? ` · ${form.language_test_score}` : ""}`
+                  : labelOf(TEST_STATUSES, form.language_test_status) || "IELTS, TOEFL, PTE or Duolingo"
+              }
+              open={openSection === "test"}
+              onToggle={() => toggle("test")}
+              hasError={!!scoreErr}
+            >
+              <Text style={styles.matchesHint}>
+                Changing these updates your university matches.
+              </Text>
+              <ChoiceRow
+                label="English test"
+                options={TEST_STATUSES}
+                value={form.language_test_status}
+                onChange={(v) => set("language_test_status", v)}
+              />
+              {form.language_test_status === "taken" && (
+                <ChoiceRow
+                  label="Which test?"
+                  options={LANGUAGE_TESTS}
+                  value={form.language_test}
+                  onChange={(v) => set("language_test", v)}
+                />
+              )}
+              {form.language_test_status === "taken" && form.language_test !== "" && (
+                <Field
+                  label="Your score"
+                  value={form.language_test_score}
+                  onChangeText={(t) => set("language_test_score", t)}
+                  placeholder={TEST_PLACEHOLDER[form.language_test]}
+                  keyboardType="decimal-pad"
+                  error={scoreErr}
+                />
+              )}
+            </Section>
+
+            <Section
+              icon={<WalletIcon size={20} color={colors.accent} />}
+              title="Budget & timeline"
+              summary={
+                [
+                  form.budget
+                    ? `€${parseInt(form.budget, 10).toLocaleString("en-US")}/yr`
+                    : "Tuition-free only",
+                  [labelOf(INTAKES, form.intake), form.intake_year].filter(Boolean).join(" "),
+                ]
+                  .filter(Boolean)
+                  .join(" · ")
+              }
+              open={openSection === "plan"}
+              onToggle={() => toggle("plan")}
+              hasError={!!budgetErr}
+            >
+              <Text style={styles.matchesHint}>
+                Changing these updates your university matches.
+              </Text>
               <Field
-                label="Your score"
-                value={form.language_test_score}
-                onChangeText={(t) => set("language_test_score", t)}
-                placeholder={TEST_PLACEHOLDER[form.language_test]}
-                keyboardType="decimal-pad"
-                error={scoreErr}
+                label="Budget per year (EUR)"
+                value={form.budget}
+                onChangeText={(t) => set("budget", t.replace(/[^0-9]/g, ""))}
+                placeholder="18000"
+                keyboardType="number-pad"
+                maxLength={6}
+                error={budgetErr}
               />
-            )}
-            <Field
-              label="Budget per year (EUR)"
-              value={form.budget}
-              onChangeText={(t) => set("budget", t.replace(/[^0-9]/g, ""))}
-              placeholder="18000"
-              keyboardType="number-pad"
-              maxLength={6}
-              error={budgetErr}
-            />
-            <ChoiceRow
-              label="Target intake"
-              options={INTAKES}
-              value={form.intake}
-              onChange={(v) => set("intake", v)}
-            />
-            <ChoiceRow
-              label="Intake year"
-              options={INTAKE_YEARS}
-              value={form.intake_year}
-              onChange={(v) => set("intake_year", v)}
-            />
-            <ChoiceRow
-              label="Where are you in the journey?"
-              options={STAGES}
-              value={form.stage}
-              onChange={(v) => set("stage", v)}
-            />
+              <ChoiceRow
+                label="Target intake"
+                options={INTAKES}
+                value={form.intake}
+                onChange={(v) => set("intake", v)}
+              />
+              <ChoiceRow
+                label="Intake year"
+                options={INTAKE_YEARS}
+                value={form.intake_year}
+                onChange={(v) => set("intake_year", v)}
+              />
+              <ChoiceRow
+                label="Where are you in the journey?"
+                options={STAGES}
+                value={form.stage}
+                onChange={(v) => set("stage", v)}
+              />
+            </Section>
           </View>
 
           {saveError !== null && (
@@ -425,6 +562,7 @@ export default function ProfileScreen(_props: Props) {
 
           <PrimaryButton
             label={saving ? "Saving…" : "Save changes"}
+            icon={<CheckIcon size={16} color="#fff" />}
             onPress={onSave}
             style={dirty && !saving ? styles.saveBtn : { ...styles.saveBtn, opacity: 0.4 }}
           />
@@ -435,6 +573,7 @@ export default function ProfileScreen(_props: Props) {
             accessibilityRole="button"
             style={({ pressed }) => [styles.signOutBtn, pressed && { opacity: 0.7 }]}
           >
+            <LogOutIcon size={17} />
             <Text style={styles.signOutText}>Sign out</Text>
           </Pressable>
         </ScrollView>
@@ -498,9 +637,53 @@ const styles = StyleSheet.create({
   },
   tierChipText: { fontFamily: fonts.monoBold, fontSize: 9.5, letterSpacing: 1, color: colors.accent },
 
-  sectionTitle: { fontFamily: fonts.display, fontSize: 18, letterSpacing: -0.3, color: colors.ink, marginTop: 26 },
-  sectionSub: { fontFamily: fonts.bodyRegular, fontSize: 12.5, color: colors.textFaint, marginTop: 2 },
-  fields: { gap: 16, marginTop: 14 },
+  sections: { marginTop: 22, gap: 12 },
+  section: {
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: colors.borderSoft,
+    borderRadius: radius["2xl"],
+    overflow: "hidden",
+    ...shadow.card,
+  },
+  sectionHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 13,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    minHeight: 64,
+  },
+  sectionIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 13,
+    backgroundColor: colors.accentSoft,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sectionHeadTitle: { fontFamily: fonts.bodyBold, fontSize: 14.5, color: colors.ink },
+  sectionHeadSummary: {
+    fontFamily: fonts.bodyRegular,
+    fontSize: 12,
+    color: colors.textFaint,
+    marginTop: 2,
+  },
+  errorDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.accent },
+  sectionBody: {
+    gap: 16,
+    paddingHorizontal: 14,
+    paddingBottom: 18,
+    paddingTop: 4,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.borderSoft,
+  },
+  matchesHint: {
+    fontFamily: fonts.bodyRegular,
+    fontSize: 12,
+    color: colors.textFaint,
+    marginTop: 10,
+  },
 
   savedRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, marginTop: 16 },
   savedText: { fontFamily: fonts.bodyBold, fontSize: 13.5, color: colors.success },
@@ -514,6 +697,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#F3C4B8",
     backgroundColor: "#fff",
+    flexDirection: "row",
+    gap: 9,
     alignItems: "center",
     justifyContent: "center",
   },
