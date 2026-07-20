@@ -67,8 +67,12 @@ def dispatch_due_reminders():
         return 0, 0
 
     dispatched = swallowed = 0
-    for reminder in Reminder.objects.filter(id__in=due_ids, sent_at=now).select_related(
-        "student__user", "task"
+    # .iterator(): stream the claimed rows instead of materializing them —
+    # fan-out loops must stay flat in memory however large the batch gets.
+    for reminder in (
+        Reminder.objects.filter(id__in=due_ids, sent_at=now)
+        .select_related("student__user", "task")
+        .iterator()
     ):
         if now - reminder.remind_at > STALE_AFTER:
             swallowed += 1
@@ -118,7 +122,7 @@ def send_broadcast(broadcast_id):
         broadcast.save(update_fields=["status"])
 
     count = 0
-    for student in _broadcast_recipients(broadcast):
+    for student in _broadcast_recipients(broadcast).iterator():
         notify(
             student.user,
             category=broadcast.category,
@@ -166,7 +170,7 @@ def notify_students_of_data_change(change_id):
         .select_related("user")
     )
     count = 0
-    for student in students:
+    for student in students.iterator():
         notify(
             student.user,
             category=Notification.Category.UPDATE,

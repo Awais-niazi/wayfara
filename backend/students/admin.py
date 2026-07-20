@@ -6,6 +6,7 @@ from .models import Accommodation, Document, Flight, Reminder, Student, Task, Ta
 @admin.register(Student)
 class StudentAdmin(admin.ModelAdmin):
     list_display = ["user", "assigned_advisor", "study_level", "intake", "intake_year", "stage", "current_phase", "onboarding_completed"]
+    list_select_related = ["user", "assigned_advisor"]
     list_filter = ["study_level", "intake", "stage", "onboarding_completed", "assigned_advisor"]
     search_fields = ["user__email", "assigned_advisor__email"]
     autocomplete_fields = ["user", "assigned_advisor"]
@@ -14,6 +15,9 @@ class StudentAdmin(admin.ModelAdmin):
 @admin.register(Document)
 class DocumentAdmin(admin.ModelAdmin):
     list_display = ["doc_type", "student", "status", "expires_at", "uploaded_at"]
+    # Student.__str__ reads user.email — join past the first FK level or the
+    # change list queries per row. Same reason on every admin below.
+    list_select_related = ["student__user"]
     list_filter = ["doc_type", "status"]
     search_fields = ["student__user__email"]
 
@@ -29,6 +33,7 @@ class TaskTemplateAdmin(admin.ModelAdmin):
 @admin.register(Task)
 class TaskAdmin(admin.ModelAdmin):
     list_display = ["title", "student", "phase", "due_date", "status"]
+    list_select_related = ["student__user"]
     list_filter = ["phase", "status"]
     search_fields = ["title", "student__user__email"]
 
@@ -36,15 +41,18 @@ class TaskAdmin(admin.ModelAdmin):
 @admin.register(Reminder)
 class ReminderAdmin(admin.ModelAdmin):
     list_display = ["title", "student", "remind_at", "channel", "sent"]
+    list_select_related = ["student__user"]
     list_filter = ["channel", "sent"]
 
 
 @admin.register(Accommodation)
 class AccommodationAdmin(admin.ModelAdmin):
     list_display = ["student", "kind", "provider", "status", "city", "monthly_rent_eur"]
+    list_select_related = ["student__user"]
     list_filter = ["kind", "status"]
 
 
 @admin.register(Flight)
 class FlightAdmin(admin.ModelAdmin):
     list_display = ["student", "flight_number", "depart_airport", "arrive_airport", "depart_at"]
+    list_select_related = ["student__user"]

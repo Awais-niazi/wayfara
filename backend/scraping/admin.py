@@ -1,4 +1,8 @@
 from django.contrib import admin, messages
+from django.contrib.contenttypes.prefetch import GenericPrefetch
+
+from applications.models import PolicyFigure
+from universities.models import Program, University
 
 from .models import DataChange, ScrapeRun, ScrapeSource
 
@@ -12,6 +16,7 @@ class ScrapeSourceAdmin(admin.ModelAdmin):
 @admin.register(ScrapeRun)
 class ScrapeRunAdmin(admin.ModelAdmin):
     list_display = ["source", "status", "started_at", "records_scraped", "changes_detected"]
+    list_select_related = ["source"]
     list_filter = ["status", "source"]
     readonly_fields = ["source", "status", "started_at", "finished_at",
                        "records_scraped", "changes_detected", "error"]
@@ -27,6 +32,20 @@ class DataChangeAdmin(admin.ModelAdmin):
                        "old_display", "new_display", "new_value", "risk",
                        "applied_automatically", "applied_at"]
     actions = ["approve_changes", "reject_changes"]
+
+    def get_queryset(self, request):
+        # `target` is a GenericForeignKey — one query per row without a
+        # prefetch. Program joins its university because its __str__ reads it.
+        return super().get_queryset(request).prefetch_related(
+            GenericPrefetch(
+                "target",
+                [
+                    Program.objects.select_related("university"),
+                    University.objects.all(),
+                    PolicyFigure.objects.all(),
+                ],
+            )
+        )
 
     @admin.action(description="Approve & apply selected changes")
     def approve_changes(self, request, queryset):

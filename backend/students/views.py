@@ -99,7 +99,9 @@ class TaskListView(generics.ListAPIView):
     serializer_class = TaskSerializer
 
     def get_queryset(self):
-        qs = Task.objects.owned_by(self.request.user)
+        # The serializer reads template.is_critical — join it or the list
+        # costs one query per task (49 active templates deep).
+        qs = Task.objects.owned_by(self.request.user).select_related("template")
         phase = self.request.query_params.get("phase")
         if phase is not None:
             # Task.phase is a PositiveSmallIntegerField — a non-numeric value
@@ -114,7 +116,12 @@ class TaskStatusView(APIView):
     """Mark a task complete / skipped / back to pending."""
 
     def post(self, request, pk):
-        task = Task.objects.owned_by(request.user).filter(pk=pk).first()
+        task = (
+            Task.objects.owned_by(request.user)
+            .select_related("template")
+            .filter(pk=pk)
+            .first()
+        )
         if task is None:
             return Response(status=status.HTTP_404_NOT_FOUND)
         serializer = TaskStatusSerializer(data=request.data)

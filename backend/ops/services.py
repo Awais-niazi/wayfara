@@ -234,7 +234,7 @@ def run_canaries():
     from django.core.files.storage import default_storage
 
     missing = 0
-    for doc in Document.objects.exclude(file="").order_by("-uploaded_at")[:25]:
+    for doc in Document.objects.exclude(file="").order_by("-uploaded_at")[:25].iterator():
         try:
             if not default_storage.exists(doc.file.name):
                 missing += 1

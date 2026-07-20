@@ -16,6 +16,8 @@ class MessageInline(admin.TabularInline):
 @admin.register(AdvisorThread)
 class AdvisorThreadAdmin(admin.ModelAdmin):
     list_display = ["student", "advisor", "last_message_at", "created_at"]
+    # Student.__str__ reads user.email — join it or the list queries per row.
+    list_select_related = ["student__user", "advisor"]
     search_fields = ["student__user__email", "advisor__email"]
     readonly_fields = ["student", "advisor", "created_at", "last_message_at"]
     inlines = [MessageInline]

@@ -38,6 +38,7 @@ class NotificationAdmin(admin.ModelAdmin):
     the platform (services.notify), never composed here."""
 
     list_display = ["user", "category", "title", "created_at", "read_at", "push_sent_at"]
+    list_select_related = ["user"]
     list_filter = ["category"]
     search_fields = ["user__email", "title"]
     readonly_fields = [f.name for f in Notification._meta.fields]
