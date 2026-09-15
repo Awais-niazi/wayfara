@@ -14,7 +14,7 @@ from choosing a university to their first month settled in. Replaces the
 | `mobile/` | The app users install | Expo (React Native, SDK 57) + NativeWind v5 (Tailwind) |
 | `web/` | Landing page + purchase front door | Static HTML (checkout wiring lands Week 9) |
 
-## Key decisions
+## Key decisions.
 
 - **Mobile app, not a PWA** — React Native via Expo.
 - **Payments happen on the web, not in-app.** Users buy on the website through a
